@@ -43,23 +43,19 @@ KNOWLEDGE_DIR = Path("jarvis_knowledge")
 KNOWLEDGE_DIR.mkdir(exist_ok=True)
 SKILL_MATRIX_FILE = KNOWLEDGE_DIR / "_skill_matrix.json"
 
-# Default curriculum used when JARVIS autonomously studies a new
-# language or technology. Each item becomes one search->synthesize->save cycle.
+# Full mastery curriculum: one study session covers a technology from
+# fundamentals through advanced, real-world usage. Completing it = MASTER.
 DEFAULT_CURRICULUM = [
     "core syntax, variables and data types",
     "control flow, functions and error handling",
-    "data structures and standard library essentials",
-    "object oriented / idiomatic patterns and best practices",
-    "ecosystem, tooling, package management and real world usage",
-]
-
-SKILL_LEVELS = [
-    (0, "UNTRAINED"),
-    (1, "NOVICE"),
-    (3, "APPRENTICE"),
-    (5, "ADEPT"),
-    (10, "EXPERT"),
-    (20, "MASTER"),
+    "data structures and collections",
+    "object oriented and idiomatic design patterns",
+    "standard library and essential built-ins",
+    "modules, packages and project structure",
+    "concurrency, async and performance optimization",
+    "testing, debugging and profiling",
+    "ecosystem, tooling and package management",
+    "advanced real-world usage, security and best practices",
 ]
 
 
@@ -84,30 +80,23 @@ def save_skill_matrix(matrix: dict):
 
 
 def skill_level_name(lesson_count: int) -> str:
-    name = "UNTRAINED"
-    for threshold, level in SKILL_LEVELS:
-        if lesson_count >= threshold:
-            name = level
-    return name
+    # Interim label while lessons are being saved; a completed study
+    # session promotes the topic straight to MASTER via set_topic_mastery.
+    return "TRAINED"
 
 
-def skill_progress(lesson_count: int):
-    """Return (current_level, next_level, fraction toward next level)."""
-    current = "UNTRAINED"
-    current_threshold = 0
-    next_level = None
-    next_threshold = None
-    for threshold, level in SKILL_LEVELS:
-        if lesson_count >= threshold:
-            current = level
-            current_threshold = threshold
-        elif next_level is None:
-            next_level = level
-            next_threshold = threshold
-    if next_level is None:
-        return current, "MAX", 1.0
-    span = max(next_threshold - current_threshold, 1)
-    return current, next_level, (lesson_count - current_threshold) / span
+def set_topic_mastery(topic: str, learned: int, total: int) -> str:
+    """Record curriculum coverage after a study session. Completing the
+    curriculum (allowing one dropped module) = MASTER, no grinding."""
+    matrix = load_skill_matrix()
+    slug = slugify(topic)
+    info = matrix.get(slug, {"topic": topic, "lessons": learned})
+    info["coverage"] = f"{learned}/{total}"
+    info["level"] = "MASTER" if learned >= total - 1 else f"TRAINED ({learned}/{total} modules)"
+    info["last_studied"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    matrix[slug] = info
+    save_skill_matrix(matrix)
+    return info["level"]
 
 
 def save_knowledge(topic: str, lesson_title: str, content: str, source: str = "self_study") -> str:
@@ -659,7 +648,7 @@ def run_study_session(topic: str, chat_url: str, model: str):
 
         progress.progress((i + 1) / total, text=f"🧠 Studying {topic}: {i + 1}/{total} modules complete")
 
-    level = load_skill_matrix().get(slugify(topic), {}).get("level", "UNTRAINED")
+    level = set_topic_mastery(topic, len(learned), total)
     st.session_state.current_memory_buffer = f"Study complete: '{topic}' — proficiency: {level}"
     st.session_state.repl_logs.append(f"[LEARNING CORTEX] Study session complete: {topic} — proficiency {level}\n")
     modules_md = "\n".join(f"- ✅ {t}" for t in learned) if learned else "- ⚠️ No modules completed (check the AI node connection)"
@@ -694,11 +683,18 @@ with st.sidebar:
     skill_matrix = load_skill_matrix()
     if skill_matrix:
         for slug, info in skill_matrix.items():
-            level, next_level, frac = skill_progress(info.get("lessons", 0))
-            pct = int(frac * 100)
+            level = info.get("level", "TRAINED")
+            if level == "MASTER":
+                pct = 100
+            else:
+                try:
+                    done, total_mods = info.get("coverage", "1/2").split("/")
+                    pct = int(int(done) / max(int(total_mods), 1) * 100)
+                except Exception:
+                    pct = 50
             st.markdown(
                 f"<div class='jv-skill'><span class='name'>{info['topic']}</span>"
-                f"<span class='lvl'>{level} → {next_level}</span>"
+                f"<span class='lvl'>{'⭐ MASTER' if level == 'MASTER' else level}</span>"
                 f"<div class='bar'><div class='fill' style='width:{pct}%;'></div></div></div>",
                 unsafe_allow_html=True,
             )
