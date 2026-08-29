@@ -1016,6 +1016,7 @@ with tab_chat:
                         # Advance the study plan if one is running
                         if st.session_state.study_plan:
                             st.session_state.study_plan["index"] += 1
+                            st.session_state.study_plan["retries"] = 0
                             queue_next_study_step()
                         needs_rerun = True
 
@@ -1062,6 +1063,42 @@ with tab_chat:
                                 st.session_state.messages.append({"role": "user", "content": "*[Self-Healing Triggered]*: Fix the error above.", "api_prompt": healing_prompt})
 
                         message_placeholder.markdown(full_response)
+                        needs_rerun = True
+
+                    # 5. STUDY ANTI-STALL: during a study session the model MUST
+                    # produce a lesson. If it forgot the [LEARN] tags, salvage its
+                    # answer as the lesson; if the output is unusable, retry the
+                    # module once, then skip it — the session never freezes.
+                    elif st.session_state.study_plan:
+                        plan = st.session_state.study_plan
+                        subtopic = plan["subtopics"][plan["index"]]
+                        salvage = re.sub(r"\[/?\s*(LEARN|WEB_SEARCH|MODIFY|STUDY)[^\]]*\]", "", full_response, flags=re.IGNORECASE).strip()
+
+                        if len(salvage) > 200:
+                            result = save_knowledge(plan["topic"], subtopic, salvage, source="self_study_salvaged")
+                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Missing [LEARN] tags — lesson salvaged anyway. {result}\n")
+                            display_note = f"📚 **Lesson learned:** *{plan['topic']} — {subtopic}*\n\n{salvage[:600]}{'...' if len(salvage) > 600 else ''}\n\n`{result}`"
+                            st.session_state.messages.append({"role": "assistant", "content": display_note, "api_prompt": f"[Lesson '{subtopic}' for '{plan['topic']}' saved to long-term memory.]"})
+                            plan["index"] += 1
+                            plan["retries"] = 0
+                            queue_next_study_step()
+                        elif plan.get("retries", 0) < 1:
+                            plan["retries"] = plan.get("retries", 0) + 1
+                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Malformed lesson output — retrying module {plan['index'] + 1}.\n")
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                            retry_prompt = "\n".join([
+                                f"Your previous output was not a valid lesson. Write the full lesson for '{plan['topic']}' module '{subtopic}' NOW.",
+                                "Include code examples, syntax, common pitfalls, and best practices.",
+                                f"Wrap it EXACTLY as: [LEARN: {plan['topic']} | {subtopic}] your lesson notes [/LEARN]",
+                                "Output ONLY that block.",
+                            ])
+                            st.session_state.messages.append({"role": "user", "content": f"*[Learning Cortex: retrying module {plan['index'] + 1}/{len(plan['subtopics'])}]*", "api_prompt": retry_prompt})
+                        else:
+                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Module {plan['index'] + 1} failed twice — skipping to next module.\n")
+                            st.session_state.messages.append({"role": "assistant", "content": full_response})
+                            plan["index"] += 1
+                            plan["retries"] = 0
+                            queue_next_study_step()
                         needs_rerun = True
 
                     if needs_rerun:
