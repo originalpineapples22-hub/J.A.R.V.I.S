@@ -91,6 +91,25 @@ def skill_level_name(lesson_count: int) -> str:
     return name
 
 
+def skill_progress(lesson_count: int):
+    """Return (current_level, next_level, fraction toward next level)."""
+    current = "UNTRAINED"
+    current_threshold = 0
+    next_level = None
+    next_threshold = None
+    for threshold, level in SKILL_LEVELS:
+        if lesson_count >= threshold:
+            current = level
+            current_threshold = threshold
+        elif next_level is None:
+            next_level = level
+            next_threshold = threshold
+    if next_level is None:
+        return current, "MAX", 1.0
+    span = max(next_threshold - current_threshold, 1)
+    return current, next_level, (lesson_count - current_threshold) / span
+
+
 def save_knowledge(topic: str, lesson_title: str, content: str, source: str = "self_study") -> str:
     """Persist a learned lesson to disk and update the skill matrix."""
     topic = topic.strip()
@@ -175,6 +194,29 @@ def recall_knowledge(query: str, max_topics: int = 3, max_chars: int = 6000) -> 
     return "\n\n".join(recalled_parts)
 
 
+def export_knowledge_markdown() -> str:
+    """Compile the entire knowledge base into a single Markdown document."""
+    matrix = load_skill_matrix()
+    lines = ["# J.A.R.V.I.S. Knowledge Base Export", f"_Exported {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_", ""]
+    for slug, info in matrix.items():
+        topic_file = KNOWLEDGE_DIR / f"{slug}.json"
+        if not topic_file.exists():
+            continue
+        try:
+            with open(topic_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        lines.append(f"## {data.get('topic', slug)} — {info.get('level', '?')} ({info.get('lessons', 0)} lessons)")
+        for lesson in data.get("lessons", []):
+            lines.append(f"### {lesson.get('lesson', '')}")
+            lines.append(f"_{lesson.get('timestamp', '')} · source: {lesson.get('source', '')}_")
+            lines.append("")
+            lines.append(lesson.get("content", ""))
+            lines.append("")
+    return "\n".join(lines)
+
+
 def record_audit_entry(feature_name: str, status: str, details: str, diff: str = ""):
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -238,6 +280,20 @@ def robust_web_search(query):
 
     return "Search failed due to API rate limits or network blocks. Proceed with available knowledge."
 
+
+# --- OLLAMA NODE STATUS ---
+@st.cache_data(ttl=20, show_spinner=False)
+def check_ollama_node(chat_url: str):
+    """Ping the Ollama server. Returns (online, [installed model names])."""
+    try:
+        base = chat_url.split("/api/")[0]
+        resp = requests.get(f"{base}/api/tags", timeout=2)
+        resp.raise_for_status()
+        models = [m.get("name", "") for m in resp.json().get("models", []) if m.get("name")]
+        return True, models
+    except Exception:
+        return False, []
+
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="J.A.R.V.I.S. Core",
@@ -246,22 +302,187 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- J.A.R.V.I.S. HUD STYLING ---
-st.markdown("".join([
-    "<style>",
-    "@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');",
-    ".main { background-color: #020617; color: #00f0ff; font-family: 'Orbitron', sans-serif; }",
-    ".stSidebar { background-color: #040d21; border-right: 1px solid #00f0ff; }",
-    "h1, h2, h3, h4, h5 { font-family: 'Orbitron', sans-serif; color: #00f0ff; text-shadow: 0 0 8px rgba(0, 240, 255, 0.5); }",
-    ".stButton>button { background: transparent; border: 1px solid #00f0ff; color: #00f0ff; border-radius: 2px; font-family: 'Orbitron', sans-serif; font-weight: bold; text-transform: uppercase; box-shadow: 0 0 5px rgba(0,240,255,0.3); transition: all 0.2s ease; }",
-    ".stButton>button:hover { background-color: #00f0ff; color: #020617; box-shadow: 0 0 15px rgba(0,240,255,0.8); }",
-    "div[data-testid='stMetricValue'] { font-family: 'Courier New', monospace; color: #00f0ff; text-shadow: 0 0 5px #00f0ff; }",
-    ".repl-terminal { background-color: #010409; border: 1px solid #00f0ff; border-radius: 4px; padding: 14px; font-family: 'Courier New', monospace; color: #00f0ff; height: 300px; overflow-y: auto; white-space: pre-wrap; box-shadow: inset 0 0 10px rgba(0,240,255,0.1); }",
-    "[data-testid='stStatusWidget'] { border: 1px solid #00f0ff; background-color: #040d21; }",
-    ".cognitive-buffer { background-color: #010409; border: 1px dashed #00f0ff; border-radius: 4px; padding: 10px; font-family: 'Courier New', monospace; color: #00ff66; font-size: 0.85em; }",
-    ".skill-badge { display: inline-block; border: 1px solid #00f0ff; border-radius: 3px; padding: 2px 8px; margin: 2px; font-family: 'Courier New', monospace; color: #00ff66; font-size: 0.8em; }",
-    "</style>"
-]), unsafe_allow_html=True)
+# --- J.A.R.V.I.S. HUD STYLING (MARK XII) ---
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@400;500;600&display=swap');
+
+/* --- Global HUD ground: dark grid + vignette --- */
+.stApp {
+    background-color: #01040d;
+    background-image:
+        radial-gradient(ellipse at 50% 0%, rgba(0,240,255,0.07), transparent 60%),
+        linear-gradient(rgba(0,240,255,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,240,255,0.035) 1px, transparent 1px);
+    background-size: 100% 100%, 42px 42px, 42px 42px;
+    color: #b8ecf2;
+    font-family: 'Rajdhani', sans-serif;
+}
+/* Scanline overlay */
+.stApp::before {
+    content: "";
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0px, rgba(0,0,0,0.12) 1px, transparent 1px, transparent 4px);
+    pointer-events: none; z-index: 0;
+    mix-blend-mode: multiply;
+}
+h1, h2, h3, h4, h5 { font-family: 'Orbitron', sans-serif; color: #00f0ff; text-shadow: 0 0 10px rgba(0,240,255,0.45); letter-spacing: 2px; }
+p, li, label, .stMarkdown { font-family: 'Rajdhani', sans-serif; }
+
+/* --- Sidebar --- */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #030a1c 0%, #01040d 100%);
+    border-right: 1px solid rgba(0,240,255,0.35);
+    box-shadow: 8px 0 24px rgba(0,240,255,0.06);
+}
+section[data-testid="stSidebar"] .stMarkdown { color: #9fdbe4; }
+
+/* --- Buttons --- */
+.stButton>button, .stDownloadButton>button {
+    background: linear-gradient(180deg, rgba(0,240,255,0.08), rgba(0,240,255,0.02));
+    border: 1px solid #00f0ff; color: #00f0ff; border-radius: 2px;
+    font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: 0.72em;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    box-shadow: 0 0 8px rgba(0,240,255,0.25), inset 0 0 8px rgba(0,240,255,0.05);
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    transition: all 0.18s ease;
+}
+.stButton>button:hover, .stDownloadButton>button:hover {
+    background: #00f0ff; color: #01040d;
+    box-shadow: 0 0 22px rgba(0,240,255,0.9);
+}
+
+/* --- Inputs --- */
+.stTextInput input, .stSelectbox div[data-baseweb="select"] {
+    background-color: rgba(1,4,13,0.85) !important;
+    border: 1px solid rgba(0,240,255,0.4) !important;
+    color: #00f0ff !important; font-family: 'Rajdhani', monospace !important;
+}
+div[data-testid="stChatInput"] {
+    border: 1px solid rgba(0,240,255,0.55); border-radius: 3px;
+    background: rgba(1,4,13,0.9);
+    box-shadow: 0 0 14px rgba(0,240,255,0.18), inset 0 0 10px rgba(0,240,255,0.05);
+}
+div[data-testid="stChatInput"] textarea { color: #00f0ff !important; font-family: 'Rajdhani', sans-serif !important; }
+
+/* --- Chat messages --- */
+div[data-testid="stChatMessage"] {
+    background: linear-gradient(160deg, rgba(0,240,255,0.05), rgba(1,4,13,0.6));
+    border: 1px solid rgba(0,240,255,0.22);
+    border-left: 3px solid #00f0ff;
+    border-radius: 3px;
+    box-shadow: 0 0 12px rgba(0,240,255,0.06);
+    margin-bottom: 6px;
+}
+
+/* --- Tabs --- */
+.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid rgba(0,240,255,0.3); }
+.stTabs [data-baseweb="tab"] {
+    background: rgba(0,240,255,0.04); border: 1px solid rgba(0,240,255,0.25); border-bottom: none;
+    color: #7fd4de; font-family: 'Orbitron', sans-serif; font-size: 0.7em; letter-spacing: 1.5px;
+    border-radius: 3px 3px 0 0; padding: 6px 16px;
+}
+.stTabs [aria-selected="true"] {
+    background: rgba(0,240,255,0.14); color: #00f0ff !important;
+    box-shadow: 0 -2px 12px rgba(0,240,255,0.25);
+}
+
+/* --- Metrics / containers --- */
+div[data-testid='stMetricValue'] { font-family: 'Courier New', monospace; color: #00f0ff; text-shadow: 0 0 6px #00f0ff; }
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: rgba(0,240,255,0.28) !important;
+    background: linear-gradient(160deg, rgba(0,240,255,0.03), rgba(1,4,13,0.4));
+    box-shadow: 0 0 16px rgba(0,240,255,0.05);
+}
+
+/* --- Custom HUD components --- */
+.jv-header {
+    display: flex; align-items: center; gap: 22px;
+    border: 1px solid rgba(0,240,255,0.4); border-radius: 4px;
+    background: linear-gradient(90deg, rgba(0,240,255,0.10), rgba(1,4,13,0.2) 55%);
+    box-shadow: 0 0 24px rgba(0,240,255,0.12), inset 0 0 18px rgba(0,240,255,0.04);
+    padding: 14px 22px; margin-bottom: 10px; position: relative; overflow: hidden;
+}
+.jv-header::after {
+    content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(0,240,255,0.10), transparent);
+    animation: jv-sweep 5s linear infinite;
+}
+@keyframes jv-sweep { 0% { left: -60%; } 100% { left: 120%; } }
+
+.jv-reactor { width: 64px; height: 64px; position: relative; flex-shrink: 0; }
+.jv-reactor .ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid rgba(0,240,255,0.85);
+    box-shadow: 0 0 16px rgba(0,240,255,0.8), inset 0 0 16px rgba(0,240,255,0.5);
+    animation: jv-pulse 2.4s ease-in-out infinite;
+}
+.jv-reactor .ring2 {
+    position: absolute; inset: 9px; border-radius: 50%;
+    border: 2px dashed rgba(0,240,255,0.65);
+    animation: jv-spin 7s linear infinite;
+}
+.jv-reactor .core {
+    position: absolute; inset: 21px; border-radius: 50%;
+    background: radial-gradient(circle, #e6ffff 0%, #00f0ff 55%, rgba(0,240,255,0.15) 100%);
+    box-shadow: 0 0 22px #00f0ff;
+    animation: jv-pulse 2.4s ease-in-out infinite;
+}
+@keyframes jv-spin { to { transform: rotate(360deg); } }
+@keyframes jv-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.jv-title { font-family: 'Orbitron', sans-serif; font-size: 1.7em; font-weight: 900; color: #eafcff; letter-spacing: 8px; text-shadow: 0 0 14px rgba(0,240,255,0.8); }
+.jv-sub { font-family: 'Rajdhani', sans-serif; color: #7fd4de; font-size: 0.85em; letter-spacing: 3px; }
+
+.jv-chip {
+    display: inline-block; font-family: 'Courier New', monospace; font-size: 0.72em;
+    border-radius: 2px; padding: 3px 10px; margin-left: 8px; letter-spacing: 1px;
+    border: 1px solid rgba(0,255,102,0.6); color: #00ff66; background: rgba(0,255,102,0.06);
+    text-shadow: 0 0 6px rgba(0,255,102,0.6);
+}
+.jv-chip.off { border-color: rgba(255,59,92,0.6); color: #ff3b5c; background: rgba(255,59,92,0.06); text-shadow: 0 0 6px rgba(255,59,92,0.6); }
+
+.jv-gauge-label { font-family: 'Orbitron', sans-serif; font-size: 0.68em; color: #7fd4de; letter-spacing: 2px; text-align: center; margin-top: 2px; }
+
+.repl-terminal { background-color: #010409; border: 1px solid #00f0ff; border-radius: 4px; padding: 14px; font-family: 'Courier New', monospace; color: #00f0ff; height: 300px; overflow-y: auto; white-space: pre-wrap; box-shadow: inset 0 0 14px rgba(0,240,255,0.12); }
+.cognitive-buffer { background-color: #010409; border: 1px dashed #00f0ff; border-radius: 4px; padding: 10px; font-family: 'Courier New', monospace; color: #00ff66; font-size: 0.85em; }
+
+.jv-skill { margin-bottom: 8px; }
+.jv-skill .name { font-family: 'Orbitron', sans-serif; font-size: 0.72em; color: #eafcff; letter-spacing: 1px; }
+.jv-skill .lvl { float: right; font-family: 'Courier New', monospace; font-size: 0.7em; color: #00ff66; }
+.jv-skill .bar { height: 6px; background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.3); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.jv-skill .fill { height: 100%; background: linear-gradient(90deg, #007a88, #00f0ff); box-shadow: 0 0 8px rgba(0,240,255,0.8); }
+
+[data-testid='stStatusWidget'] { border: 1px solid #00f0ff; background-color: #040d21; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def hud_gauge(label: str, value: float, online: bool = True) -> str:
+    """Circular SVG gauge for the sensor array."""
+    pct = min(max(float(value), 0), 100)
+    color = "#ff3b5c" if pct > 80 else ("#ffb347" if pct > 60 else "#00f0ff")
+    r = 40
+    circumference = 2 * 3.14159 * r
+    dash = circumference * pct / 100.0
+    display = f"{pct:.0f}%" if online else "OFF"
+    if not online:
+        color = "#44515a"
+        dash = 0
+    return f"""
+    <div style="text-align:center;">
+      <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r="{r}" fill="none" stroke="rgba(0,240,255,0.12)" stroke-width="8"/>
+        <circle cx="55" cy="55" r="{r}" fill="none" stroke="{color}" stroke-width="8"
+                stroke-linecap="round" stroke-dasharray="{dash:.1f} {circumference:.1f}"
+                transform="rotate(-90 55 55)"
+                style="filter: drop-shadow(0 0 6px {color}); transition: stroke-dasharray 0.6s ease;"/>
+        <text x="55" y="61" text-anchor="middle" fill="{color}" font-family="Courier New, monospace"
+              font-size="20" font-weight="bold" style="text-shadow: 0 0 8px {color};">{display}</text>
+      </svg>
+      <div class="jv-gauge-label">{label}</div>
+    </div>
+    """
 
 # --- SELF-HEALING RECURSIVE SANDBOX ENGINE ---
 def safe_self_modify(feature_name: str, python_streamlit_code: str) -> str:
@@ -423,34 +644,40 @@ def finish_study_session():
 # --- SIDEBAR: SYSTEM CONTROLS ---
 with st.sidebar:
     st.markdown("## 🤖 J.A.R.V.I.S. UPLINK")
-    st.caption("Core Engine: Mark XI (Self-Learning)")
+    st.caption("Core Engine: Mark XII (Advanced HUD)")
     ollama_url = st.text_input("Local AI Node URL", value="http://localhost:11434/api/chat", key="mk10_url")
-    local_model = st.text_input("Active AI Model", value="qwen2.5-coder:14b", key="mk10_model")
+
+    node_online, installed_models = check_ollama_node(ollama_url)
+    if node_online and installed_models:
+        default_idx = 0
+        for i, m in enumerate(installed_models):
+            if "qwen2.5-coder" in m:
+                default_idx = i
+                break
+        local_model = st.selectbox("Active AI Model", installed_models, index=default_idx, key="mk12_model_sel")
+    else:
+        local_model = st.text_input("Active AI Model", value="qwen2.5-coder:14b", key="mk10_model")
+        if not node_online:
+            st.error("AI NODE OFFLINE — start Ollama (`ollama serve`).")
 
     st.divider()
     st.markdown("### 🧠 LEARNED SKILL MATRIX")
     skill_matrix = load_skill_matrix()
     if skill_matrix:
-        badges = "".join(
-            f"<span class='skill-badge'>{info['topic']} · {info['level']}</span>"
-            for info in skill_matrix.values()
-        )
-        st.markdown(badges, unsafe_allow_html=True)
-        with st.expander("📖 Browse Knowledge Base"):
+        for slug, info in skill_matrix.items():
+            level, next_level, frac = skill_progress(info.get("lessons", 0))
+            pct = int(frac * 100)
+            st.markdown(
+                f"<div class='jv-skill'><span class='name'>{info['topic']}</span>"
+                f"<span class='lvl'>{level} → {next_level}</span>"
+                f"<div class='bar'><div class='fill' style='width:{pct}%;'></div></div></div>",
+                unsafe_allow_html=True,
+            )
+        with st.expander("📖 Manage Knowledge"):
             for slug, info in skill_matrix.items():
-                st.markdown(f"**{info['topic']}** — {info['level']} ({info['lessons']} lessons, last: {info['last_studied']})")
-                topic_file = KNOWLEDGE_DIR / f"{slug}.json"
-                if topic_file.exists():
-                    try:
-                        with open(topic_file, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        for lesson in data.get("lessons", []):
-                            st.caption(f"• {lesson.get('lesson', '')} ({lesson.get('timestamp', '')})")
-                    except Exception:
-                        pass
                 if st.button(f"Forget '{info['topic']}'", key=f"forget_{slug}"):
                     try:
-                        topic_file.unlink(missing_ok=True)
+                        (KNOWLEDGE_DIR / f"{slug}.json").unlink(missing_ok=True)
                         matrix = load_skill_matrix()
                         matrix.pop(slug, None)
                         save_skill_matrix(matrix)
@@ -513,8 +740,21 @@ with st.sidebar:
         st.session_state.study_plan = None
         st.rerun()
 
-# --- MAIN HUD ---
-st.markdown("## ⚡ MAIN SENSOR ARRAY")
+# --- MAIN HUD HEADER ---
+node_chip = "<span class='jv-chip'>AI NODE ONLINE</span>" if node_online else "<span class='jv-chip off'>AI NODE OFFLINE</span>"
+web_chip = "<span class='jv-chip'>WEB UPLINK</span>" if HAS_WEB else "<span class='jv-chip off'>WEB OFFLINE</span>"
+sensor_chip = "<span class='jv-chip'>SENSORS</span>" if HAS_PSUTIL else "<span class='jv-chip off'>SENSORS OFFLINE</span>"
+skills_count = len(load_skill_matrix())
+st.markdown(f"""
+<div class="jv-header">
+  <div class="jv-reactor"><div class="ring"></div><div class="ring2"></div><div class="core"></div></div>
+  <div>
+    <div class="jv-title">J.A.R.V.I.S.</div>
+    <div class="jv-sub">JUST A RATHER VERY INTELLIGENT SYSTEM &nbsp;·&nbsp; MARK XII &nbsp;·&nbsp; {skills_count} SKILLS ACQUIRED</div>
+  </div>
+  <div style="margin-left:auto; text-align:right;">{node_chip}{web_chip}{sensor_chip}</div>
+</div>
+""", unsafe_allow_html=True)
 
 # --- LIVE AUTO-REFRESHING DASHBOARD FRAGMENT ---
 @st.fragment(run_every="2s")
@@ -523,24 +763,20 @@ def render_dynamic_dashboard():
     ram_val = psutil.virtual_memory().percent if HAS_PSUTIL else 0
     disk_val = psutil.disk_usage('/').percent if HAS_PSUTIL else 0
 
-    col_cpu, col_ram, col_disk = st.columns(3)
-    with col_cpu:
-        st.metric("CPU Load", f"{cpu_val}%" if HAS_PSUTIL else "OFFLINE")
-    with col_ram:
-        st.metric("Memory Usage", f"{ram_val}%" if HAS_PSUTIL else "OFFLINE")
-    with col_disk:
-        st.metric("Core Storage", f"{disk_val}%" if HAS_PSUTIL else "OFFLINE")
-
-    # --- HARDWIRED PROACTIVE DIAGNOSTICS ---
     with st.container(border=True):
-        st.markdown("### 🛡️ J.A.R.V.I.S. PROACTIVE DIAGNOSTICS")
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
+        col_cpu, col_ram, col_disk, col_diag = st.columns([1, 1, 1, 2])
+        with col_cpu:
+            st.markdown(hud_gauge("CPU CORE", cpu_val, HAS_PSUTIL), unsafe_allow_html=True)
+        with col_ram:
+            st.markdown(hud_gauge("MEMORY", ram_val, HAS_PSUTIL), unsafe_allow_html=True)
+        with col_disk:
+            st.markdown(hud_gauge("STORAGE", disk_val, HAS_PSUTIL), unsafe_allow_html=True)
+        with col_diag:
+            st.markdown("##### 🛡️ PROACTIVE DIAGNOSTICS")
             if cpu_val > 80:
                 st.error(f"⚠️ CRITICAL CPU LOAD: {cpu_val}%")
             else:
                 st.success(f"🟢 CPU NOMINAL: {cpu_val}%")
-        with col_d2:
             if ram_val > 80:
                 st.error(f"⚠️ CRITICAL RAM LOAD: {ram_val}%")
             else:
@@ -615,8 +851,26 @@ with col_cam:
 
 st.divider()
 
+# --- QUICK ACTIONS ---
+qa1, qa2, qa3, qa4 = st.columns(4)
+quick_prompt = None
+with qa1:
+    if st.button("📡 SYSTEM REPORT", key="qa_report"):
+        quick_prompt = "Give me a full system status report: your current capabilities, learned skills, and readiness."
+with qa2:
+    if st.button("🧠 KNOWLEDGE RECAP", key="qa_recap"):
+        quick_prompt = "Summarize everything you have learned so far and what you can help me with."
+with qa3:
+    if st.button("💡 SUGGEST STUDY", key="qa_suggest"):
+        quick_prompt = "Based on your current skill matrix, suggest the next 3 technologies you should study and why. Do not start studying yet."
+with qa4:
+    if st.button("🔧 CODE ASSIST", key="qa_code"):
+        quick_prompt = "I need coding help. Ask me what I'm building and which language, then use your learned knowledge to assist."
+
 # --- INPUT HANDLING ---
 prompt = st.chat_input("Command J.A.R.V.I.S...", key="mk10_chat")
+if quick_prompt and not prompt:
+    prompt = quick_prompt
 
 if prompt:
     display_prompt = prompt
@@ -633,11 +887,62 @@ if prompt:
     st.session_state.messages.append({"role": "user", "content": display_prompt, "api_prompt": api_prompt})
 
 # --- UI TABS ---
-tab_chat, tab_repl, tab_code = st.tabs(["💬 COMMAND INTERFACE", "💻 CORE TERMINAL", "📄 SOURCE CODE"])
+tab_chat, tab_vault, tab_repl, tab_audit, tab_code = st.tabs([
+    "💬 COMMAND INTERFACE", "🧠 KNOWLEDGE VAULT", "💻 CORE TERMINAL", "📊 AUDIT LOG", "📄 SOURCE CODE"
+])
+
+with tab_vault:
+    vault_matrix = load_skill_matrix()
+    if not vault_matrix:
+        st.info("The vault is empty. Order a study session to begin acquiring knowledge.")
+    else:
+        col_v1, col_v2 = st.columns([3, 1])
+        with col_v2:
+            st.download_button(
+                "⬇️ EXPORT ALL KNOWLEDGE",
+                data=export_knowledge_markdown(),
+                file_name=f"jarvis_knowledge_{datetime.now().strftime('%Y%m%d')}.md",
+                mime="text/markdown",
+                key="vault_export",
+            )
+        with col_v1:
+            st.markdown(f"**{len(vault_matrix)} topics** in long-term memory.")
+        for slug, info in vault_matrix.items():
+            with st.expander(f"📚 {info['topic']} — {info['level']} ({info['lessons']} lessons, last studied {info['last_studied']})"):
+                topic_file = KNOWLEDGE_DIR / f"{slug}.json"
+                if topic_file.exists():
+                    try:
+                        with open(topic_file, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        for lesson in data.get("lessons", []):
+                            st.markdown(f"**{lesson.get('lesson', '')}** · _{lesson.get('timestamp', '')}_")
+                            st.markdown(lesson.get("content", ""))
+                            st.divider()
+                    except Exception:
+                        st.warning("Could not read lesson file.")
 
 with tab_repl:
     terminal_content = "".join(st.session_state.repl_logs)
     st.markdown(f'<div class="repl-terminal"><pre>{terminal_content}</pre></div>', unsafe_allow_html=True)
+
+with tab_audit:
+    if AUDIT_LOG_FILE.exists():
+        try:
+            with open(AUDIT_LOG_FILE, "r", encoding="utf-8") as f:
+                audit_history = json.load(f)
+        except Exception:
+            audit_history = []
+        if audit_history:
+            for entry in audit_history:
+                icon = "🟢" if "SUCCESS" in entry.get("status", "") else "🔴"
+                with st.expander(f"{icon} {entry.get('timestamp', '')} — {entry.get('feature', '')} [{entry.get('status', '')}]"):
+                    st.markdown(f"**Details:** {entry.get('details', '')}")
+                    if entry.get("diff_preview"):
+                        st.code(entry["diff_preview"], language="diff")
+        else:
+            st.info("No self-modification events recorded yet.")
+    else:
+        st.info("No self-modification events recorded yet.")
 
 with tab_code:
     if os.path.exists("jarvis.py"):
@@ -646,12 +951,13 @@ with tab_code:
 
 with tab_chat:
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
+        avatar = "🧑‍✈️" if msg["role"] == "user" else "🤖"
+        with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
 
     # TRIGGER AUTONOMOUS AGENT LOOP
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🤖"):
             message_placeholder = st.empty()
             full_response = ""
 
