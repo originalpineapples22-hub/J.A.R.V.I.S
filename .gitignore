@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+jarvis_backups/
+jarvis_audit.json
+jarvis_knowledge/

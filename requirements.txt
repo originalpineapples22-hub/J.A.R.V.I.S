@@ -1,0 +1,7 @@
+streamlit>=1.37
+requests
+psutil
+duckduckgo-search
+pypdf
+pandas
+openpyxl
