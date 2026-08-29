@@ -577,69 +577,98 @@ if "parsed_file_context" not in st.session_state:
     st.session_state.parsed_file_context = ""
 if "last_manual_search" not in st.session_state:
     st.session_state.last_manual_search = ""
-if "study_plan" not in st.session_state:
-    # {"topic": str, "subtopics": [str], "index": int} while a study session runs
-    st.session_state.study_plan = None
+if "pending_study" not in st.session_state:
+    # Topic queued for an inline study session (runs start-to-finish in one pass)
+    st.session_state.pending_study = None
 
 
-def start_study_session(topic: str):
-    """Kick off the autonomous curriculum loop for a topic."""
-    st.session_state.study_plan = {
-        "topic": topic,
-        "subtopics": list(DEFAULT_CURRICULUM),
-        "index": 0,
-    }
+# Detects study commands typed directly in the chat box, e.g.
+# "learn rust", "jarvis, study docker", "teach yourself react"
+STUDY_INTENT_RE = re.compile(
+    r"^(?:hey\s+)?(?:jarvis[,!\s]+)?(?:please\s+)?(?:can you\s+|could you\s+|go\s+|i want you to\s+)?"
+    r"(?:learn|study|master|teach yourself)\s+(?:about\s+|the\s+)?(.{2,60}?)[\s\.\!\?]*$",
+    re.IGNORECASE,
+)
+
+TAG_STRIP_RE = re.compile(r"\[/?\s*(LEARN|WEB_SEARCH|MODIFY|STUDY)[^\]]*\]", re.IGNORECASE)
+
+
+def run_study_session(topic: str, chat_url: str, model: str):
+    """Run a full autonomous study session in ONE pass — no page reruns
+    between modules. Each lesson streams live into its own status panel."""
+    subtopics = list(DEFAULT_CURRICULUM)
+    total = len(subtopics)
     st.session_state.repl_logs.append(f"\n[LEARNING CORTEX] Study session initiated: {topic}\n")
-    queue_next_study_step()
+    progress = st.progress(0.0, text=f"🧠 Studying {topic}: 0/{total} modules complete")
+    learned = []
 
-
-def queue_next_study_step():
-    """Search the web for the current subtopic and queue a synthesis directive for the model."""
-    plan = st.session_state.study_plan
-    if not plan or plan["index"] >= len(plan["subtopics"]):
-        finish_study_session()
-        return
-
-    topic = plan["topic"]
-    subtopic = plan["subtopics"][plan["index"]]
-    query = f"{topic} {subtopic}"
-
-    search_data = robust_web_search(query) if HAS_WEB else "No web module available. Use your internal knowledge."
-    st.session_state.current_memory_buffer = f"Studying '{topic}' — module {plan['index'] + 1}/{len(plan['subtopics'])}: {subtopic}"
-    st.session_state.repl_logs.append(f"[LEARNING CORTEX] Researching module {plan['index'] + 1}/{len(plan['subtopics'])}: {subtopic}\n")
-
-    study_prompt = "\n".join([
-        f"AUTONOMOUS STUDY SESSION for '{topic}' — module {plan['index'] + 1} of {len(plan['subtopics'])}: '{subtopic}'.",
-        "Research data retrieved from the web:",
-        search_data,
-        "",
-        "Combine this research data with your own internal knowledge and write a thorough, detailed lesson on this module.",
-        "Include concrete code examples, syntax, common pitfalls, and best practices.",
-        f"You MUST wrap the entire lesson EXACTLY as: [LEARN: {topic} | {subtopic}] your lesson notes [/LEARN]",
-        "Output ONLY the [LEARN] block. Do not add anything before or after it.",
+    study_system = "\n".join([
+        "You are J.A.R.V.I.S., an AI writing technical study notes for your own permanent memory.",
+        "Write a thorough, well-organized lesson with concrete code examples, syntax, common pitfalls, and best practices.",
+        "Output ONLY the lesson content. No preamble, no closing remarks.",
     ])
+
+    for i, subtopic in enumerate(subtopics):
+        with st.status(f"📖 Module {i + 1}/{total}: {subtopic}", expanded=True) as status:
+            st.session_state.current_memory_buffer = f"Studying '{topic}' — module {i + 1}/{total}: {subtopic}"
+            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Researching module {i + 1}/{total}: {subtopic}\n")
+            search_data = robust_web_search(f"{topic} {subtopic}") if HAS_WEB else "No web module available. Use your internal knowledge."
+
+            study_prompt = "\n".join([
+                f"Write a detailed lesson about '{topic}' — specifically: '{subtopic}'.",
+                "Research data from the web to incorporate:",
+                search_data,
+                "",
+                "Combine the research with your own knowledge. Include code examples.",
+            ])
+            stream_box = st.empty()
+            lesson_text = ""
+            try:
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": study_system},
+                        {"role": "user", "content": study_prompt},
+                    ],
+                    "stream": True,
+                    "options": {"temperature": 0.1},
+                }
+                response = requests.post(chat_url, json=payload, stream=True, timeout=600)
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line:
+                        chunk = json.loads(line.decode("utf-8"))
+                        lesson_text += chunk.get("message", {}).get("content", "")
+                        stream_box.markdown(lesson_text[-1200:] + "▌")
+            except requests.exceptions.RequestException as e:
+                status.update(label=f"⚠️ Module {i + 1}/{total} failed: connection lost", state="error", expanded=False)
+                st.session_state.repl_logs.append(f"[LEARNING CORTEX] Connection error on module {i + 1}: {e}\n")
+                progress.progress((i + 1) / total, text=f"🧠 Studying {topic}: {i + 1}/{total} modules complete")
+                continue
+
+            content = TAG_STRIP_RE.sub("", lesson_text).strip()
+            if len(content) > 100:
+                result = save_knowledge(topic, subtopic, content)
+                learned.append(subtopic)
+                st.session_state.repl_logs.append(f"[LEARNING CORTEX] {result}\n")
+                stream_box.markdown(content[:800] + ("..." if len(content) > 800 else ""))
+                status.update(label=f"✅ Module {i + 1}/{total} learned: {subtopic}", state="complete", expanded=False)
+            else:
+                status.update(label=f"⚠️ Module {i + 1}/{total} produced no usable lesson — skipped", state="error", expanded=False)
+                st.session_state.repl_logs.append(f"[LEARNING CORTEX] Module {i + 1} unusable — skipped.\n")
+
+        progress.progress((i + 1) / total, text=f"🧠 Studying {topic}: {i + 1}/{total} modules complete")
+
+    level = load_skill_matrix().get(slugify(topic), {}).get("level", "UNTRAINED")
+    st.session_state.current_memory_buffer = f"Study complete: '{topic}' — proficiency: {level}"
+    st.session_state.repl_logs.append(f"[LEARNING CORTEX] Study session complete: {topic} — proficiency {level}\n")
+    modules_md = "\n".join(f"- ✅ {t}" for t in learned) if learned else "- ⚠️ No modules completed (check the AI node connection)"
+    summary = f"🧠 **Study session complete: {topic}** — proficiency: **{level}**\n\n{modules_md}\n\nThis knowledge is now in my permanent long-term memory. Ask me anything about {topic}."
     st.session_state.messages.append({
-        "role": "user",
-        "content": f"*[Learning Cortex: studying '{topic}' — module {plan['index'] + 1}/{len(plan['subtopics'])}: {subtopic}]*",
-        "api_prompt": study_prompt,
+        "role": "assistant",
+        "content": summary,
+        "api_prompt": f"[You completed an autonomous study session on '{topic}'. All lessons saved to long-term memory. Proficiency: {level}.]",
     })
-
-
-def finish_study_session():
-    plan = st.session_state.study_plan
-    if plan:
-        topic = plan["topic"]
-        matrix = load_skill_matrix()
-        info = matrix.get(slugify(topic), {})
-        level = info.get("level", "NOVICE")
-        st.session_state.repl_logs.append(f"[LEARNING CORTEX] Study session complete: {topic} — proficiency {level}\n")
-        st.session_state.current_memory_buffer = f"Study complete: '{topic}' — proficiency: {level}"
-        st.session_state.messages.append({
-            "role": "user",
-            "content": f"*[Learning Cortex: study session for '{topic}' complete.]*",
-            "api_prompt": f"System Update: Your autonomous study session for '{topic}' is complete. All lessons are committed to your permanent long-term memory (proficiency: {level}). Briefly report to the user what you learned and confirm you can now assist with '{topic}'.",
-        })
-    st.session_state.study_plan = None
 
 # --- SIDEBAR: SYSTEM CONTROLS ---
 with st.sidebar:
@@ -689,16 +718,9 @@ with st.sidebar:
 
     study_topic_input = st.text_input("Direct Study Order:", key="mk11_study_topic", placeholder="e.g. Rust, Docker, React...")
     if st.button("INITIATE STUDY PROTOCOL", key="mk11_study_btn") and study_topic_input.strip():
-        if st.session_state.study_plan:
-            st.warning("A study session is already in progress.")
-        else:
-            start_study_session(study_topic_input.strip())
-            st.rerun()
-
-    if st.session_state.study_plan:
-        plan = st.session_state.study_plan
-        st.progress(min(plan["index"] / len(plan["subtopics"]), 1.0),
-                    text=f"Studying {plan['topic']}: {plan['index']}/{len(plan['subtopics'])} modules")
+        st.session_state.pending_study = study_topic_input.strip()
+        st.session_state.messages.append({"role": "user", "content": f"*[Direct study order: {study_topic_input.strip()}]*"})
+        st.rerun()
 
     st.divider()
     st.markdown("### 🌐 WEB ACCESS")
@@ -737,7 +759,7 @@ with st.sidebar:
         st.session_state.current_memory_buffer = "No external files or web data loaded."
         st.session_state.last_file_id = None
         st.session_state.parsed_file_context = ""
-        st.session_state.study_plan = None
+        st.session_state.pending_study = None
         st.rerun()
 
 # --- MAIN HUD HEADER ---
@@ -873,6 +895,15 @@ if quick_prompt and not prompt:
     prompt = quick_prompt
 
 if prompt:
+    # --- CHAT-TRIGGERED SELF-LEARNING: "learn rust", "study docker", etc.
+    # Detected in the backend so it works even if the model forgets its tags.
+    study_intent = STUDY_INTENT_RE.match(prompt.strip())
+    if study_intent and not st.session_state.pending_study:
+        st.session_state.pending_study = study_intent.group(1).strip()
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        prompt = None
+
+if prompt:
     display_prompt = prompt
     api_prompt = prompt
     if st.session_state.parsed_file_context:
@@ -955,8 +986,17 @@ with tab_chat:
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
 
+    # INLINE AUTONOMOUS STUDY SESSION — runs the full curriculum in one
+    # smooth pass with live streaming, then refreshes once at the end.
+    if st.session_state.pending_study:
+        study_topic = st.session_state.pending_study
+        st.session_state.pending_study = None
+        with st.chat_message("assistant", avatar="🤖"):
+            run_study_session(study_topic, ollama_url, local_model)
+        st.rerun()
+
     # TRIGGER AUTONOMOUS AGENT LOOP
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+    elif st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         with st.chat_message("assistant", avatar="🤖"):
             message_placeholder = st.empty()
             full_response = ""
@@ -994,11 +1034,10 @@ with tab_chat:
                     needs_rerun = False
 
                     # 1. HANDLE AUTONOMOUS STUDY PROTOCOL (self-learning kickoff)
-                    if study_match and not st.session_state.study_plan:
+                    if study_match and not st.session_state.pending_study:
                         topic = study_match.group(1).strip()
                         st.session_state.messages.append({"role": "assistant", "content": full_response})
-                        with st.status(f"🧠 Learning Cortex engaged: studying {topic}...", expanded=True):
-                            start_study_session(topic)
+                        st.session_state.pending_study = topic
                         needs_rerun = True
 
                     # 2. HANDLE LEARN BLOCKS (commit knowledge to long-term memory)
@@ -1013,11 +1052,6 @@ with tab_chat:
                         display_note = f"📚 **Lesson learned:** *{topic} — {lesson_title}*\n\n{lesson_content[:600]}{'...' if len(lesson_content) > 600 else ''}\n\n`{result}`"
                         st.session_state.messages.append({"role": "assistant", "content": display_note, "api_prompt": f"[Lesson '{lesson_title}' for '{topic}' saved to long-term memory.]"})
 
-                        # Advance the study plan if one is running
-                        if st.session_state.study_plan:
-                            st.session_state.study_plan["index"] += 1
-                            st.session_state.study_plan["retries"] = 0
-                            queue_next_study_step()
                         needs_rerun = True
 
                     # 3. HANDLE WEB SEARCH ROUTINE
@@ -1063,42 +1097,6 @@ with tab_chat:
                                 st.session_state.messages.append({"role": "user", "content": "*[Self-Healing Triggered]*: Fix the error above.", "api_prompt": healing_prompt})
 
                         message_placeholder.markdown(full_response)
-                        needs_rerun = True
-
-                    # 5. STUDY ANTI-STALL: during a study session the model MUST
-                    # produce a lesson. If it forgot the [LEARN] tags, salvage its
-                    # answer as the lesson; if the output is unusable, retry the
-                    # module once, then skip it — the session never freezes.
-                    elif st.session_state.study_plan:
-                        plan = st.session_state.study_plan
-                        subtopic = plan["subtopics"][plan["index"]]
-                        salvage = re.sub(r"\[/?\s*(LEARN|WEB_SEARCH|MODIFY|STUDY)[^\]]*\]", "", full_response, flags=re.IGNORECASE).strip()
-
-                        if len(salvage) > 200:
-                            result = save_knowledge(plan["topic"], subtopic, salvage, source="self_study_salvaged")
-                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Missing [LEARN] tags — lesson salvaged anyway. {result}\n")
-                            display_note = f"📚 **Lesson learned:** *{plan['topic']} — {subtopic}*\n\n{salvage[:600]}{'...' if len(salvage) > 600 else ''}\n\n`{result}`"
-                            st.session_state.messages.append({"role": "assistant", "content": display_note, "api_prompt": f"[Lesson '{subtopic}' for '{plan['topic']}' saved to long-term memory.]"})
-                            plan["index"] += 1
-                            plan["retries"] = 0
-                            queue_next_study_step()
-                        elif plan.get("retries", 0) < 1:
-                            plan["retries"] = plan.get("retries", 0) + 1
-                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Malformed lesson output — retrying module {plan['index'] + 1}.\n")
-                            st.session_state.messages.append({"role": "assistant", "content": full_response})
-                            retry_prompt = "\n".join([
-                                f"Your previous output was not a valid lesson. Write the full lesson for '{plan['topic']}' module '{subtopic}' NOW.",
-                                "Include code examples, syntax, common pitfalls, and best practices.",
-                                f"Wrap it EXACTLY as: [LEARN: {plan['topic']} | {subtopic}] your lesson notes [/LEARN]",
-                                "Output ONLY that block.",
-                            ])
-                            st.session_state.messages.append({"role": "user", "content": f"*[Learning Cortex: retrying module {plan['index'] + 1}/{len(plan['subtopics'])}]*", "api_prompt": retry_prompt})
-                        else:
-                            st.session_state.repl_logs.append(f"[LEARNING CORTEX] Module {plan['index'] + 1} failed twice — skipping to next module.\n")
-                            st.session_state.messages.append({"role": "assistant", "content": full_response})
-                            plan["index"] += 1
-                            plan["retries"] = 0
-                            queue_next_study_step()
                         needs_rerun = True
 
                     if needs_rerun:
