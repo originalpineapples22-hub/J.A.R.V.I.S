@@ -5,3 +5,9 @@ duckduckgo-search
 pypdf
 pandas
 openpyxl
+pyttsx3
+streamlit-mic-recorder
+keyboard
+screen-brightness-control
+pycaw
+comtypes

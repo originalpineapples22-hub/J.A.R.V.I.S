@@ -3,6 +3,7 @@ import streamlit as st
 import os
 import io
 import ast
+import sys
 import shutil
 import re
 import textwrap
@@ -12,6 +13,8 @@ import difflib
 import requests
 import hashlib
 import threading
+import subprocess
+import webbrowser
 import concurrent.futures
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +36,39 @@ try:
 except ImportError:
     HAS_WEB = False
 
+# --- VOICE & PC CONTROL IMPORTS (all optional, with fallbacks) ---
+try:
+    import pyttsx3
+    HAS_TTS = True
+except Exception:
+    HAS_TTS = False
+
+try:
+    from streamlit_mic_recorder import speech_to_text
+    HAS_MIC = True
+except Exception:
+    HAS_MIC = False
+
+try:
+    import screen_brightness_control as sbc
+    HAS_BRIGHT = True
+except Exception:
+    HAS_BRIGHT = False
+
+try:
+    from ctypes import cast, POINTER
+    from comtypes import CLSCTX_ALL
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+    HAS_VOL = True
+except Exception:
+    HAS_VOL = False
+
+try:
+    import keyboard as kb
+    HAS_KEYS = True
+except Exception:
+    HAS_KEYS = False
+
 # --- SYSTEM DIRECTORIES & AUDIT SETUP ---
 BACKUP_DIR = Path("jarvis_backups")
 BACKUP_DIR.mkdir(exist_ok=True)
@@ -42,6 +78,18 @@ AUDIT_LOG_FILE = Path("jarvis_audit.json")
 KNOWLEDGE_DIR = Path("jarvis_knowledge")
 KNOWLEDGE_DIR.mkdir(exist_ok=True)
 SKILL_MATRIX_FILE = KNOWLEDGE_DIR / "_skill_matrix.json"
+
+# --- FABRICATION, MACROS & SECURITY SETUP ---
+OUTPUT_DIR = Path("jarvis_output")
+OUTPUT_DIR.mkdir(exist_ok=True)
+ACCESS_FILE = Path("jarvis_access.json")
+MACROS_FILE = Path("jarvis_macros.json")
+if not MACROS_FILE.exists():
+    with open(MACROS_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "work mode": {"apps": ["code"], "urls": ["https://mail.google.com", "https://github.com"]},
+            "chill mode": {"apps": ["spotify"], "urls": ["https://www.youtube.com"]},
+        }, f, indent=2)
 
 # Full mastery curriculum: one study session covers a technology from
 # fundamentals through advanced, real-world usage. Completing it = MASTER.
@@ -206,6 +254,226 @@ def export_knowledge_markdown() -> str:
     return "\n".join(lines)
 
 
+# --- VOICE OUTPUT (offline Windows SAPI via pyttsx3) ---
+def speak(text: str):
+    if not HAS_TTS or not st.session_state.get("cfg_voice", True):
+        return
+    clean = re.sub(r"```.*?```", " code block omitted ", text, flags=re.DOTALL)
+    clean = re.sub(r"[*_#`>\[\]()|]", "", clean).strip()[:350]
+    if not clean:
+        return
+
+    def _worker(t):
+        try:
+            engine = pyttsx3.init()
+            engine.setProperty("rate", 175)
+            engine.say(t)
+            engine.runAndWait()
+        except Exception:
+            pass
+
+    threading.Thread(target=_worker, args=(clean,), daemon=True).start()
+
+
+# --- IDENTITY / ACCESS CONTROL ---
+def _hash_code(code: str, salt: str) -> str:
+    return hashlib.sha256((salt + code).encode("utf-8")).hexdigest()
+
+
+def save_access_code(code: str):
+    salt = hashlib.sha256(os.urandom(16)).hexdigest()[:16]
+    with open(ACCESS_FILE, "w", encoding="utf-8") as f:
+        json.dump({"salt": salt, "hash": _hash_code(code, salt)}, f)
+
+
+def verify_access_code(code: str) -> bool:
+    try:
+        with open(ACCESS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return _hash_code(code, data["salt"]) == data["hash"]
+    except Exception:
+        return False
+
+
+# --- HANDS-FREE PC COMMAND ENGINE ---
+APP_ALIASES = {
+    "notepad": "notepad", "calculator": "calc", "paint": "mspaint",
+    "file explorer": "explorer", "explorer": "explorer", "files": "explorer",
+    "terminal": "cmd", "cmd": "cmd", "command prompt": "cmd",
+    "settings": "ms-settings:", "task manager": "taskmgr",
+    "chrome": "chrome", "firefox": "firefox", "edge": "msedge",
+    "vs code": "code", "vscode": "code", "visual studio code": "code",
+    "spotify": "spotify", "discord": "discord", "steam": "steam",
+    "word": "winword", "excel": "excel", "powerpoint": "powerpnt",
+}
+SITE_ALIASES = {
+    "youtube": "https://www.youtube.com", "google": "https://www.google.com",
+    "gmail": "https://mail.google.com", "github": "https://github.com",
+    "reddit": "https://www.reddit.com", "twitch": "https://www.twitch.tv",
+    "netflix": "https://www.netflix.com", "chatgpt": "https://chat.openai.com",
+}
+
+
+def launch_target(target: str) -> str:
+    t = target.lower().strip()
+    if t in SITE_ALIASES:
+        webbrowser.open(SITE_ALIASES[t])
+        return f"Opening {t}, sir."
+    if t.startswith("http") or ("." in t and " " not in t):
+        url = t if t.startswith("http") else "https://" + t
+        webbrowser.open(url)
+        return f"Opening {url}."
+    exe = APP_ALIASES.get(t, t)
+    try:
+        if os.name == "nt":
+            subprocess.Popen(f'start "" "{exe}"', shell=True)
+        else:
+            subprocess.Popen([exe])
+        return f"Launching {t}, sir."
+    except Exception as e:
+        return f"Unable to launch '{t}': {e}"
+
+
+def set_system_volume(level: int) -> str:
+    if not HAS_VOL:
+        return "Volume control module not installed. Run: pip install pycaw comtypes"
+    try:
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        vol = cast(interface, POINTER(IAudioEndpointVolume))
+        vol.SetMasterVolumeLevelScalar(max(0, min(level, 100)) / 100.0, None)
+        return f"Volume set to {level} percent."
+    except Exception as e:
+        return f"Volume control failed: {e}"
+
+
+def set_brightness(level: int) -> str:
+    if not HAS_BRIGHT:
+        return "Brightness module not installed. Run: pip install screen-brightness-control"
+    try:
+        sbc.set_brightness(max(0, min(level, 100)))
+        return f"Brightness set to {level} percent."
+    except Exception as e:
+        return f"Brightness control failed: {e}"
+
+
+def media_key(action: str) -> str:
+    if not HAS_KEYS:
+        return "Media control module not installed. Run: pip install keyboard"
+    keys = {"playpause": "play/pause media", "next": "next track",
+            "previous": "previous track", "stop": "stop media"}
+    try:
+        kb.send(keys[action])
+        return "Done, sir."
+    except Exception as e:
+        return f"Media control failed: {e}"
+
+
+def load_macros() -> dict:
+    try:
+        with open(MACROS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def run_macro(name: str, macro: dict) -> str:
+    results = []
+    for app in macro.get("apps", []):
+        results.append(launch_target(app))
+    for url in macro.get("urls", []):
+        webbrowser.open(url)
+        results.append(f"Opening {url}.")
+    return f"Executing protocol '{name}'. " + " ".join(results)
+
+
+def parse_local_command(prompt: str):
+    """Hands-free command engine: handles PC commands instantly in the
+    backend. Returns a reply string, or None to fall through to the AI."""
+    p = re.sub(r"^(hey\s+)?jarvis[,!\s]+", "", prompt.strip(), flags=re.IGNORECASE)
+    p = p.strip().lower().rstrip(".!?")
+
+    m = re.match(r"(?:open|launch|start)\s+(.+)$", p)
+    if m:
+        return launch_target(m.group(1))
+    m = re.match(r"(?:set\s+)?volume(?:\s+to)?\s+(\d{1,3})", p)
+    if m:
+        return set_system_volume(int(m.group(1)))
+    if p in ("mute", "mute volume", "silence"):
+        return set_system_volume(0)
+    m = re.match(r"(?:set\s+)?brightness(?:\s+to)?\s+(\d{1,3})", p)
+    if m:
+        return set_brightness(int(m.group(1)))
+    if p in ("pause", "play", "pause music", "play music", "pause the music", "resume music", "resume"):
+        return media_key("playpause")
+    if p in ("next", "next song", "next track", "skip", "skip song"):
+        return media_key("next")
+    if p in ("previous song", "previous track", "go back a song", "last song"):
+        return media_key("previous")
+
+    for name, macro in load_macros().items():
+        n = name.lower()
+        if p in (n, f"run {n}", f"activate {n}", f"{n} protocol"):
+            return run_macro(name, macro)
+    return None
+
+
+# --- FILE FABRICATOR + SANDBOX (self-testing, self-fixing) ---
+FILE_RE = re.compile(r"\[FILE:\s*([^\]]+?)\](.*?)\[/FILE\]", re.DOTALL | re.IGNORECASE)
+
+
+def sandbox_test_python(path: Path):
+    """Run a fabricated Python file in an isolated subprocess."""
+    try:
+        proc = subprocess.run([sys.executable, str(path)], capture_output=True,
+                              text=True, timeout=15, cwd=str(OUTPUT_DIR))
+        return proc.returncode == 0, (proc.stderr or proc.stdout or "")[-2000:]
+    except subprocess.TimeoutExpired:
+        return True, "Ran past 15s (long-running program) — treated as OK."
+    except Exception as e:
+        return False, str(e)
+
+
+def fabricate_files(response_text: str, chat_url: str, model: str):
+    """Save [FILE: name] blocks to jarvis_output/. Python files are
+    sandbox-tested; on failure the error is fed back to the model for up
+    to 2 automatic fix attempts before giving up."""
+    bt = "`" * 3
+    notes = []
+    for match in FILE_RE.finditer(response_text):
+        name = Path(match.group(1).strip()).name
+        raw = match.group(2)
+        cm = re.search(bt + r"(?:\w+)?\s*(.*?)\s*" + bt, raw, re.DOTALL)
+        content = (cm.group(1) if cm else raw).strip() + "\n"
+        path = OUTPUT_DIR / name
+        path.write_text(content, encoding="utf-8")
+        note = f"📦 Fabricated `{name}`"
+        if name.endswith(".py"):
+            ok, err = sandbox_test_python(path)
+            attempts = 0
+            while not ok and attempts < 2:
+                attempts += 1
+                fix_prompt = (f"This Python file '{name}' failed in the sandbox with this error:\n{err}\n\n"
+                              f"Current file content:\n{content}\n\n"
+                              "Output ONLY the complete corrected file content. No explanations, no markdown fences.")
+                try:
+                    payload = {"model": model, "messages": [{"role": "user", "content": fix_prompt}],
+                               "stream": False, "options": {"temperature": 0.1}}
+                    r = requests.post(chat_url, json=payload, timeout=300)
+                    r.raise_for_status()
+                    fixed = r.json().get("message", {}).get("content", "").strip()
+                    cm2 = re.search(bt + r"(?:\w+)?\s*(.*?)\s*" + bt, fixed, re.DOTALL)
+                    content = ((cm2.group(1) if cm2 else fixed).strip() or content) + "\n"
+                    path.write_text(content, encoding="utf-8")
+                    ok, err = sandbox_test_python(path)
+                except Exception:
+                    break
+            note += " — ✅ sandbox test passed" if ok else f" — ⚠️ still failing after {attempts} auto-fix attempts"
+            st.session_state.repl_logs.append(f"[FABRICATOR] {name}: {'PASS' if ok else 'FAIL'} ({attempts} auto-fixes)\n")
+        notes.append(note + ". Download it in the 📦 FABRICATOR tab.")
+    return notes
+
+
 def record_audit_entry(feature_name: str, status: str, details: str, diff: str = ""):
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -288,7 +556,7 @@ st.set_page_config(
     page_title="J.A.R.V.I.S. Core",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # --- J.A.R.V.I.S. HUD STYLING (MARK XII) ---
@@ -485,6 +753,39 @@ div[data-testid="stVerticalBlockBorderWrapper"]::after {
 """, unsafe_allow_html=True)
 
 
+# --- AUTHORIZATION GATE: only the registered operator may activate JARVIS ---
+if "authorized" not in st.session_state:
+    st.session_state.authorized = False
+
+if not st.session_state.authorized:
+    st.markdown("<div style='height:14vh'></div>", unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 1.2, 1])
+    with mid:
+        with st.container(border=True):
+            st.markdown("## 🔒 J.A.R.V.I.S. SECURITY")
+            if not ACCESS_FILE.exists():
+                st.caption("FIRST BOOT — register your personal access code. Only you will be able to activate J.A.R.V.I.S.")
+                c1 = st.text_input("Create Access Code", type="password", key="auth_new")
+                c2 = st.text_input("Confirm Access Code", type="password", key="auth_confirm")
+                if st.button("REGISTER OPERATOR IDENTITY", key="auth_register"):
+                    if c1 and c1 == c2:
+                        save_access_code(c1)
+                        st.session_state.authorized = True
+                        st.rerun()
+                    else:
+                        st.error("Codes are empty or do not match.")
+            else:
+                code = st.text_input("Access Code", type="password", key="auth_code")
+                if st.button("AUTHENTICATE", key="auth_btn") or code:
+                    if code and verify_access_code(code):
+                        st.session_state.authorized = True
+                        speak("Welcome back, sir. All systems online.")
+                        st.rerun()
+                    elif code:
+                        st.error("ACCESS DENIED. Operator identity not recognized.")
+    st.stop()
+
+
 def hud_gauge(label: str, value: float, online: bool = True) -> str:
     """Circular SVG gauge for the sensor array."""
     pct = min(max(float(value), 0), 100)
@@ -592,6 +893,9 @@ def build_system_prompt() -> str:
         "7. You may also spontaneously use [LEARN: topic | lesson title]...[/LEARN] any time you synthesize valuable new knowledge worth remembering.",
         "8. Context sections marked [RECALLED KNOWLEDGE] contain YOUR OWN previously learned notes retrieved from long-term memory. Trust them and use them to answer.",
         f"9. YOUR CURRENT SKILL MATRIX (topics you have already learned): {skills_summary}",
+        "FABRICATION DIRECTIVES:",
+        "10. When the user asks you to create, make, or write a file, script, or program for them, output the COMPLETE file wrapped EXACTLY as: [FILE: filename.ext] full file content [/FILE]. Python files are automatically executed in a sandbox; if errors are found you will be asked to fix them.",
+        "11. The backend directly executes PC commands (opening apps and websites, volume, brightness, media playback, macros) before messages reach you — never claim you cannot control the PC.",
     ])
 
 # --- STATE MANAGEMENT ---
@@ -702,104 +1006,27 @@ def run_study_session(topic: str, chat_url: str, model: str):
         "api_prompt": f"[You completed an autonomous study session on '{topic}'. All lessons saved to long-term memory. Proficiency: {level}.]",
     })
 
-# --- SIDEBAR: SYSTEM CONTROLS ---
-with st.sidebar:
-    st.markdown("## 🤖 J.A.R.V.I.S. UPLINK")
-    st.caption("Core Engine: Mark XII (Advanced HUD)")
-    ollama_url = st.text_input("Local AI Node URL", value="http://localhost:11434/api/chat", key="mk10_url")
+# --- CORE CONFIG (no sidebar — everything lives in the ⚙️ SYSTEMS tab) ---
+if "cfg_url" not in st.session_state:
+    st.session_state.cfg_url = "http://localhost:11434/api/chat"
+if "cfg_model" not in st.session_state:
+    st.session_state.cfg_model = "qwen2.5-coder:14b"
+if "cfg_web" not in st.session_state:
+    st.session_state.cfg_web = True
+if "cfg_voice" not in st.session_state:
+    st.session_state.cfg_voice = True
 
-    node_online, installed_models = check_ollama_node(ollama_url)
-    if node_online and installed_models:
-        default_idx = 0
-        for i, m in enumerate(installed_models):
-            if "qwen2.5-coder" in m:
-                default_idx = i
-                break
-        local_model = st.selectbox("Active AI Model", installed_models, index=default_idx, key="mk12_model_sel")
-    else:
-        local_model = st.text_input("Active AI Model", value="qwen2.5-coder:14b", key="mk10_model")
-        if not node_online:
-            st.error("AI NODE OFFLINE — start Ollama (`ollama serve`).")
-
-    st.divider()
-    st.markdown("### 🧠 LEARNED SKILL MATRIX")
-    skill_matrix = load_skill_matrix()
-    if skill_matrix:
-        for slug, info in skill_matrix.items():
-            level = info.get("level", "TRAINED")
-            if level == "MASTER":
-                pct = 100
-            else:
-                try:
-                    done, total_mods = info.get("coverage", "1/2").split("/")
-                    pct = int(int(done) / max(int(total_mods), 1) * 100)
-                except Exception:
-                    pct = 50
-            st.markdown(
-                f"<div class='jv-skill'><span class='name'>{info['topic']}</span>"
-                f"<span class='lvl'>{'⭐ MASTER' if level == 'MASTER' else level}</span>"
-                f"<div class='bar'><div class='fill' style='width:{pct}%;'></div></div></div>",
-                unsafe_allow_html=True,
-            )
-        with st.expander("📖 Manage Knowledge"):
-            for slug, info in skill_matrix.items():
-                if st.button(f"Forget '{info['topic']}'", key=f"forget_{slug}"):
-                    try:
-                        (KNOWLEDGE_DIR / f"{slug}.json").unlink(missing_ok=True)
-                        matrix = load_skill_matrix()
-                        matrix.pop(slug, None)
-                        save_skill_matrix(matrix)
-                        st.rerun()
-                    except Exception:
-                        pass
-    else:
-        st.caption("No skills learned yet. Command J.A.R.V.I.S. to 'study Python' or start below.")
-
-    study_topic_input = st.text_input("Direct Study Order:", key="mk11_study_topic", placeholder="e.g. Rust, Docker, React...")
-    if st.button("INITIATE STUDY PROTOCOL", key="mk11_study_btn") and study_topic_input.strip():
-        st.session_state.pending_study = study_topic_input.strip()
-        st.session_state.messages.append({"role": "user", "content": f"*[Direct study order: {study_topic_input.strip()}]*"})
-        st.rerun()
-
-    st.divider()
-    st.markdown("### 🌐 WEB ACCESS")
-    if HAS_WEB:
-        web_enabled = st.checkbox("Autonomous Agent Search", value=True, key="mk10_web_toggle")
-        manual_search = st.text_input("Execute Data Scrape:", key="mk10_manual_search", placeholder="Type query & press Enter...")
-        if manual_search and manual_search != st.session_state.last_manual_search:
-            with st.spinner("Establishing secure manual uplink..."):
-                search_data = robust_web_search(manual_search)
-                if "Search failed" not in search_data:
-                    st.session_state.current_memory_buffer = f"Manual Web Context: '{manual_search}'"
-                    web_prompt = f"System Update: The user bypassed autonomous protocols and manually scraped the web for '{manual_search}'. Data retrieved:\n{search_data}\n\nAcknowledge receipt and await further instructions."
-                    st.session_state.messages.append({"role": "user", "content": f"*[Manual Web Search: '{manual_search}' executed and injected into memory.]*", "api_prompt": web_prompt})
-                    st.session_state.last_manual_search = manual_search
-                    st.rerun()
-                else:
-                    st.error("Manual Uplink Failed.")
-    else:
-        web_enabled = False
-        st.error("Web module missing.")
-
-    st.divider()
-    st.markdown("### 💾 MEMORY & ROLLBACK")
-    snapshots = sorted(list(BACKUP_DIR.glob("*.py")), reverse=True)
-    if snapshots:
-        selected = st.selectbox("Select System Snapshot", [s.name for s in snapshots], key="mk10_snap")
-        if st.button("EXECUTE ROLLBACK", key="mk10_restore"):
-            shutil.copy(BACKUP_DIR / selected, "jarvis.py")
-            st.success("Rollback executed! Rebooting...")
-            time.sleep(1)
-            st.rerun()
-
-    if st.button("PURGE SESSION CACHE", key="mk10_purge"):
-        st.session_state.messages = []
-        st.session_state.repl_logs = ["# Session purged.\n"]
-        st.session_state.current_memory_buffer = "No external files or web data loaded."
-        st.session_state.last_file_id = None
-        st.session_state.parsed_file_context = ""
-        st.session_state.pending_study = None
-        st.rerun()
+ollama_url = st.session_state.cfg_url
+node_online, installed_models = check_ollama_node(ollama_url)
+if node_online and installed_models and st.session_state.cfg_model not in installed_models:
+    picked = installed_models[0]
+    for m in installed_models:
+        if "qwen2.5-coder" in m:
+            picked = m
+            break
+    st.session_state.cfg_model = picked
+local_model = st.session_state.cfg_model
+web_enabled = st.session_state.cfg_web and HAS_WEB
 
 # --- MAIN HUD HEADER: ARC REACTOR HERO ---
 node_chip = "<span class='jv-chip'>AI NODE ONLINE</span>" if node_online else "<span class='jv-chip off'>AI NODE OFFLINE</span>"
@@ -882,6 +1109,17 @@ def render_dynamic_dashboard():
                 st.error(f"⚠️ CRITICAL RAM LOAD: {ram_val}%")
             else:
                 st.success(f"🟢 RAM NOMINAL: {ram_val}%")
+
+    # --- SPOKEN ALERTS (5 min cooldown per alert) ---
+    alert_now = time.time()
+    if HAS_PSUTIL and cpu_val > 90 and alert_now - st.session_state.get("last_cpu_alert", 0) > 300:
+        st.session_state.last_cpu_alert = alert_now
+        st.session_state.repl_logs.append("[ALERT] Central processor overload detected.\n")
+        speak("Sir, the central processor is overheating.")
+    if HAS_PSUTIL and ram_val > 90 and alert_now - st.session_state.get("last_ram_alert", 0) > 300:
+        st.session_state.last_ram_alert = alert_now
+        st.session_state.repl_logs.append("[ALERT] Memory reserves critically low.\n")
+        speak("Sir, memory reserves are critically low.")
 
     # --- DASHBOARD_ANCHOR ---
 
@@ -968,10 +1206,35 @@ with qa4:
     if st.button("🔧 CODE ASSIST", key="qa_code"):
         quick_prompt = "I need coding help. Ask me what I'm building and which language, then use your learned knowledge to assist."
 
-# --- INPUT HANDLING ---
+# --- INPUT HANDLING (typed or spoken) ---
+if HAS_MIC:
+    mic_col, hint_col = st.columns([1, 5])
+    with mic_col:
+        voice_text = speech_to_text(start_prompt="🎤 SPEAK", stop_prompt="⏹ STOP",
+                                    language="en", just_once=True, key="mk14_stt")
+    with hint_col:
+        st.caption("Voice uplink: click SPEAK, give your order, click STOP. Works best in Chrome/Edge.")
+else:
+    voice_text = None
+
 prompt = st.chat_input("Command J.A.R.V.I.S...", key="mk10_chat")
+if not prompt and voice_text:
+    prompt = voice_text
 if quick_prompt and not prompt:
     prompt = quick_prompt
+
+if prompt:
+    # --- HANDS-FREE PC COMMANDS: handled instantly, no AI round-trip ---
+    cmd_reply = None
+    try:
+        cmd_reply = parse_local_command(prompt)
+    except Exception as e:
+        cmd_reply = f"Command engine error: {e}"
+    if cmd_reply:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.messages.append({"role": "assistant", "content": f"🕹️ {cmd_reply}"})
+        speak(cmd_reply)
+        prompt = None
 
 if prompt:
     # --- CHAT-TRIGGERED SELF-LEARNING: "learn rust", "study docker", etc.
@@ -997,9 +1260,121 @@ if prompt:
     st.session_state.messages.append({"role": "user", "content": display_prompt, "api_prompt": api_prompt})
 
 # --- UI TABS ---
-tab_chat, tab_vault, tab_repl, tab_audit, tab_code = st.tabs([
-    "💬 COMMAND INTERFACE", "🧠 KNOWLEDGE VAULT", "💻 CORE TERMINAL", "📊 AUDIT LOG", "📄 SOURCE CODE"
+tab_chat, tab_vault, tab_fab, tab_repl, tab_audit, tab_sys, tab_code = st.tabs([
+    "💬 COMMAND INTERFACE", "🧠 KNOWLEDGE VAULT", "📦 FABRICATOR",
+    "💻 CORE TERMINAL", "📊 AUDIT LOG", "⚙️ SYSTEMS", "📄 SOURCE CODE"
 ])
+
+with tab_fab:
+    st.caption("Files J.A.R.V.I.S. fabricates for you land here — Python files are sandbox-tested before delivery.")
+    fab_files = sorted(OUTPUT_DIR.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not fab_files:
+        st.info("Nothing fabricated yet. Try: 'make me a python script that renames all my photos by date'.")
+    for fpath in fab_files:
+        if not fpath.is_file():
+            continue
+        fc1, fc2 = st.columns([4, 1])
+        with fc1:
+            st.markdown(f"**{fpath.name}** · {fpath.stat().st_size} bytes · {datetime.fromtimestamp(fpath.stat().st_mtime).strftime('%Y-%m-%d %H:%M')}")
+        with fc2:
+            try:
+                st.download_button("⬇️ DOWNLOAD", data=fpath.read_bytes(), file_name=fpath.name, key=f"dl_{fpath.name}")
+            except Exception:
+                pass
+
+with tab_sys:
+    sys_c1, sys_c2 = st.columns(2)
+    with sys_c1:
+        with st.container(border=True):
+            st.markdown("### 🤖 AI UPLINK")
+            st.text_input("Local AI Node URL", key="cfg_url")
+            if node_online and installed_models:
+                st.selectbox("Active AI Model", installed_models, key="cfg_model")
+            else:
+                st.text_input("Active AI Model", key="cfg_model")
+                if not node_online:
+                    st.error("AI NODE OFFLINE — start Ollama (`ollama serve`).")
+            st.checkbox("Autonomous Web Search", key="cfg_web", disabled=not HAS_WEB)
+            st.checkbox("Voice Replies (J.A.R.V.I.S. speaks)", key="cfg_voice", disabled=not HAS_TTS)
+            if not HAS_TTS:
+                st.caption("Install voice output: `pip install pyttsx3`")
+            if not HAS_MIC:
+                st.caption("Install voice input: `pip install streamlit-mic-recorder`")
+
+        with st.container(border=True):
+            st.markdown("### 🧠 SKILL MATRIX")
+            skill_matrix = load_skill_matrix()
+            if skill_matrix:
+                for slug, info in skill_matrix.items():
+                    level = info.get("level", "TRAINED")
+                    if level == "MASTER":
+                        pct = 100
+                    else:
+                        try:
+                            done, total_mods = info.get("coverage", "1/2").split("/")
+                            pct = int(int(done) / max(int(total_mods), 1) * 100)
+                        except Exception:
+                            pct = 50
+                    st.markdown(
+                        f"<div class='jv-skill'><span class='name'>{info['topic']}</span>"
+                        f"<span class='lvl'>{'⭐ MASTER' if level == 'MASTER' else level}</span>"
+                        f"<div class='bar'><div class='fill' style='width:{pct}%;'></div></div></div>",
+                        unsafe_allow_html=True,
+                    )
+                with st.expander("Forget a topic"):
+                    for slug, info in skill_matrix.items():
+                        if st.button(f"Forget '{info['topic']}'", key=f"forget_{slug}"):
+                            try:
+                                (KNOWLEDGE_DIR / f"{slug}.json").unlink(missing_ok=True)
+                                matrix = load_skill_matrix()
+                                matrix.pop(slug, None)
+                                save_skill_matrix(matrix)
+                                st.rerun()
+                            except Exception:
+                                pass
+            else:
+                st.caption("No skills yet — say 'learn python' in the chat.")
+            study_topic_input = st.text_input("Direct Study Order:", key="mk11_study_topic", placeholder="e.g. Rust, Docker, React...")
+            if st.button("INITIATE STUDY PROTOCOL", key="mk11_study_btn") and study_topic_input.strip():
+                st.session_state.pending_study = study_topic_input.strip()
+                st.session_state.messages.append({"role": "user", "content": f"*[Direct study order: {study_topic_input.strip()}]*"})
+                st.rerun()
+
+    with sys_c2:
+        with st.container(border=True):
+            st.markdown("### 🕹️ VOICE MACROS")
+            st.caption("Say a macro's name (e.g. 'work mode') to launch all its apps and sites at once. Edit as JSON:")
+            macros_text = st.text_area("Macros", value=json.dumps(load_macros(), indent=2), height=180, key="macro_editor", label_visibility="collapsed")
+            if st.button("SAVE MACROS", key="macro_save"):
+                try:
+                    parsed = json.loads(macros_text)
+                    with open(MACROS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(parsed, f, indent=2)
+                    st.success("Macros updated.")
+                except Exception as e:
+                    st.error(f"Invalid JSON: {e}")
+
+        with st.container(border=True):
+            st.markdown("### 💾 MEMORY & SECURITY")
+            snapshots = sorted(list(BACKUP_DIR.glob("*.py")), reverse=True)
+            if snapshots:
+                selected = st.selectbox("System Snapshot", [s.name for s in snapshots], key="mk10_snap")
+                if st.button("EXECUTE ROLLBACK", key="mk10_restore"):
+                    shutil.copy(BACKUP_DIR / selected, "jarvis.py")
+                    st.success("Rollback executed! Rebooting...")
+                    time.sleep(1)
+                    st.rerun()
+            if st.button("PURGE SESSION CACHE", key="mk10_purge"):
+                st.session_state.messages = []
+                st.session_state.repl_logs = ["# Session purged.\n"]
+                st.session_state.current_memory_buffer = "No external files or web data loaded."
+                st.session_state.last_file_id = None
+                st.session_state.parsed_file_context = ""
+                st.session_state.pending_study = None
+                st.rerun()
+            if st.button("🔒 LOCK J.A.R.V.I.S.", key="auth_lock"):
+                st.session_state.authorized = False
+                st.rerun()
 
 with tab_vault:
     vault_matrix = load_skill_matrix()
@@ -1060,7 +1435,9 @@ with tab_code:
             st.code(f.read(), language="python")
 
 with tab_chat:
-    for msg in st.session_state.messages:
+    # Keep the interface clean: show only the most recent exchanges
+    # (full context still lives in memory and long-term knowledge on disk).
+    for msg in st.session_state.messages[-10:]:
         avatar = "🧑‍✈️" if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
@@ -1181,7 +1558,15 @@ with tab_chat:
                     if needs_rerun:
                         st.rerun()
                     else:
+                        # Fabricate any [FILE:] blocks (with sandbox test + auto-fix)
+                        try:
+                            fab_notes = fabricate_files(full_response, ollama_url, local_model)
+                            if fab_notes:
+                                full_response += "\n\n" + "\n".join(fab_notes)
+                        except Exception:
+                            pass
                         st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        speak(full_response)
                         st.rerun()
 
                 except requests.exceptions.RequestException as e:

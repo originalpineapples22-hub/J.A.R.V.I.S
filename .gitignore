@@ -3,3 +3,5 @@ __pycache__/
 jarvis_backups/
 jarvis_audit.json
 jarvis_knowledge/
+jarvis_output/
+jarvis_access.json
