@@ -36,45 +36,18 @@ try:
 except ImportError:
     HAS_WEB = False
 
-# --- VOICE & PC CONTROL IMPORTS (all optional, with fallbacks) ---
-try:
-    import pyttsx3
-    HAS_TTS = True
-except Exception:
-    HAS_TTS = False
+# --- VOICE & PC CONTROL (shared brain lives in jarvis_core.py) ---
+import streamlit.components.v1 as components
+from jarvis_core import (
+    HAS_TTS, HAS_BRIGHT, HAS_VOL, HAS_KEYS, HAS_SCREEN,
+    tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
+)
 
 try:
     from streamlit_mic_recorder import speech_to_text
     HAS_MIC = True
 except Exception:
     HAS_MIC = False
-
-try:
-    import screen_brightness_control as sbc
-    HAS_BRIGHT = True
-except Exception:
-    HAS_BRIGHT = False
-
-try:
-    from ctypes import cast, POINTER
-    from comtypes import CLSCTX_ALL
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-    HAS_VOL = True
-except Exception:
-    HAS_VOL = False
-
-try:
-    import keyboard as kb
-    HAS_KEYS = True
-except Exception:
-    HAS_KEYS = False
-
-try:
-    import mss as _mss
-    from PIL import Image as _PILImage
-    HAS_SCREEN = True
-except Exception:
-    HAS_SCREEN = False
 
 # --- SYSTEM DIRECTORIES & AUDIT SETUP ---
 BACKUP_DIR = Path("jarvis_backups")
@@ -261,25 +234,44 @@ def export_knowledge_markdown() -> str:
     return "\n".join(lines)
 
 
-# --- VOICE OUTPUT (offline Windows SAPI via pyttsx3) ---
+# --- VOICE OUTPUT ---
+# Browser speech (Web Speech API) is queued and played on the NEXT render,
+# because st.rerun() discards anything drawn in the current run. PC speech
+# (pyttsx3) is an optional fallback for when the browser is closed.
 def speak(text: str):
-    if not HAS_TTS or not st.session_state.get("cfg_voice", True):
-        return
-    clean = re.sub(r"```.*?```", " code block omitted ", text, flags=re.DOTALL)
-    clean = re.sub(r"[*_#`>\[\]()|]", "", clean).strip()[:350]
+    clean = clean_for_speech(text)
     if not clean:
         return
+    if st.session_state.get("cfg_browser_voice", True):
+        st.session_state.pending_speech = clean
+    if HAS_TTS and st.session_state.get("cfg_voice", False):
+        threading.Thread(target=tts_speak, args=(clean,), daemon=True).start()
 
-    def _worker(t):
-        try:
-            engine = pyttsx3.init()
-            engine.setProperty("rate", 175)
-            engine.say(t)
-            engine.runAndWait()
-        except Exception:
-            pass
 
-    threading.Thread(target=_worker, args=(clean,), daemon=True).start()
+def flush_browser_speech():
+    """Inject a tiny JS snippet that reads any queued reply aloud in the browser."""
+    text = st.session_state.get("pending_speech")
+    if not text:
+        return
+    st.session_state.pending_speech = None
+    safe = json.dumps(text)
+    components.html(f"""<script>
+(function(){{
+  const t = {safe};
+  function go(){{
+    try {{
+      const u = new SpeechSynthesisUtterance(t);
+      u.rate = 1.02; u.pitch = 0.95;
+      const vs = speechSynthesis.getVoices();
+      const pick = vs.find(v => /en-GB/i.test(v.lang) && /daniel|george|ryan|male/i.test(v.name))
+               || vs.find(v => /en-GB/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang));
+      if (pick) u.voice = pick;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    }} catch (e) {{}}
+  }}
+  if (speechSynthesis.getVoices().length) go(); else speechSynthesis.onvoiceschanged = go;
+}})();
+</script>""", height=0)
 
 
 # --- IDENTITY / ACCESS CONTROL ---
@@ -300,162 +292,6 @@ def verify_access_code(code: str) -> bool:
         return _hash_code(code, data["salt"]) == data["hash"]
     except Exception:
         return False
-
-
-# --- HANDS-FREE PC COMMAND ENGINE ---
-APP_ALIASES = {
-    "notepad": "notepad", "calculator": "calc", "paint": "mspaint",
-    "file explorer": "explorer", "explorer": "explorer", "files": "explorer",
-    "terminal": "cmd", "cmd": "cmd", "command prompt": "cmd",
-    "settings": "ms-settings:", "task manager": "taskmgr",
-    "chrome": "chrome", "firefox": "firefox", "edge": "msedge",
-    "vs code": "code", "vscode": "code", "visual studio code": "code",
-    "spotify": "spotify", "discord": "discord", "steam": "steam",
-    "word": "winword", "excel": "excel", "powerpoint": "powerpnt",
-}
-SITE_ALIASES = {
-    "youtube": "https://www.youtube.com", "google": "https://www.google.com",
-    "gmail": "https://mail.google.com", "github": "https://github.com",
-    "reddit": "https://www.reddit.com", "twitch": "https://www.twitch.tv",
-    "netflix": "https://www.netflix.com", "chatgpt": "https://chat.openai.com",
-}
-
-
-def launch_target(target: str) -> str:
-    t = target.lower().strip()
-    if t in SITE_ALIASES:
-        webbrowser.open(SITE_ALIASES[t])
-        return f"Opening {t}, sir."
-    if t.startswith("http") or ("." in t and " " not in t):
-        url = t if t.startswith("http") else "https://" + t
-        webbrowser.open(url)
-        return f"Opening {url}."
-    exe = APP_ALIASES.get(t, t)
-    try:
-        if os.name == "nt":
-            subprocess.Popen(f'start "" "{exe}"', shell=True)
-        else:
-            subprocess.Popen([exe])
-        return f"Launching {t}, sir."
-    except Exception as e:
-        return f"Unable to launch '{t}': {e}"
-
-
-def set_system_volume(level: int) -> str:
-    if not HAS_VOL:
-        return "Volume control module not installed. Run: pip install pycaw comtypes"
-    try:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        vol = cast(interface, POINTER(IAudioEndpointVolume))
-        vol.SetMasterVolumeLevelScalar(max(0, min(level, 100)) / 100.0, None)
-        return f"Volume set to {level} percent."
-    except Exception as e:
-        return f"Volume control failed: {e}"
-
-
-def set_brightness(level: int) -> str:
-    if not HAS_BRIGHT:
-        return "Brightness module not installed. Run: pip install screen-brightness-control"
-    try:
-        sbc.set_brightness(max(0, min(level, 100)))
-        return f"Brightness set to {level} percent."
-    except Exception as e:
-        return f"Brightness control failed: {e}"
-
-
-def media_key(action: str) -> str:
-    if not HAS_KEYS:
-        return "Media control module not installed. Run: pip install keyboard"
-    keys = {"playpause": "play/pause media", "next": "next track",
-            "previous": "previous track", "stop": "stop media"}
-    try:
-        kb.send(keys[action])
-        return "Done, sir."
-    except Exception as e:
-        return f"Media control failed: {e}"
-
-
-def load_macros() -> dict:
-    try:
-        with open(MACROS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def run_macro(name: str, macro: dict) -> str:
-    results = []
-    for app in macro.get("apps", []):
-        results.append(launch_target(app))
-    for url in macro.get("urls", []):
-        webbrowser.open(url)
-        results.append(f"Opening {url}.")
-    return f"Executing protocol '{name}'. " + " ".join(results)
-
-
-def describe_screen(chat_url: str, vision_model: str = "llava") -> str:
-    """Capture the primary display and describe it via a local vision model."""
-    if not HAS_SCREEN:
-        return "Visual sensors offline, sir. Install them with: pip install mss pillow"
-    try:
-        import base64
-        with _mss.mss() as sct:
-            shot = sct.grab(sct.monitors[1])
-            img = _PILImage.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-        img.thumbnail((1280, 1280))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-        payload = {
-            "model": vision_model,
-            "messages": [{
-                "role": "user",
-                "content": "Describe what is on this screen concisely, as J.A.R.V.I.S. reporting to sir.",
-                "images": [b64],
-            }],
-            "stream": False,
-        }
-        r = requests.post(chat_url, json=payload, timeout=180)
-        r.raise_for_status()
-        return r.json().get("message", {}).get("content", "").strip() or "I cannot interpret the display, sir."
-    except Exception as e:
-        return f"Visual analysis failed, sir. Ensure a vision model is installed (ollama pull llava). {e}"
-
-
-def parse_local_command(prompt: str):
-    """Hands-free command engine: handles PC commands instantly in the
-    backend. Returns a reply string, or None to fall through to the AI."""
-    p = re.sub(r"^(hey\s+)?jarvis[,!\s]+", "", prompt.strip(), flags=re.IGNORECASE)
-    p = p.strip().lower().rstrip(".!?")
-
-    if p in ("look at my screen", "what am i doing", "what's on my screen",
-             "whats on my screen", "see my screen", "read my screen", "scan my screen"):
-        return describe_screen(st.session_state.get("cfg_url", "http://localhost:11434/api/chat"))
-
-    m = re.match(r"(?:open|launch|start)\s+(.+)$", p)
-    if m:
-        return launch_target(m.group(1))
-    m = re.match(r"(?:set\s+)?volume(?:\s+to)?\s+(\d{1,3})", p)
-    if m:
-        return set_system_volume(int(m.group(1)))
-    if p in ("mute", "mute volume", "silence"):
-        return set_system_volume(0)
-    m = re.match(r"(?:set\s+)?brightness(?:\s+to)?\s+(\d{1,3})", p)
-    if m:
-        return set_brightness(int(m.group(1)))
-    if p in ("pause", "play", "pause music", "play music", "pause the music", "resume music", "resume"):
-        return media_key("playpause")
-    if p in ("next", "next song", "next track", "skip", "skip song"):
-        return media_key("next")
-    if p in ("previous song", "previous track", "go back a song", "last song"):
-        return media_key("previous")
-
-    for name, macro in load_macros().items():
-        n = name.lower()
-        if p in (n, f"run {n}", f"activate {n}", f"{n} protocol"):
-            return run_macro(name, macro)
-    return None
 
 
 # --- FILE FABRICATOR + SANDBOX (self-testing, self-fixing) ---
@@ -1056,7 +892,13 @@ if "cfg_model" not in st.session_state:
 if "cfg_web" not in st.session_state:
     st.session_state.cfg_web = True
 if "cfg_voice" not in st.session_state:
-    st.session_state.cfg_voice = True
+    st.session_state.cfg_voice = False
+if "cfg_browser_voice" not in st.session_state:
+    st.session_state.cfg_browser_voice = True
+if "cfg_call_mode" not in st.session_state:
+    st.session_state.cfg_call_mode = True
+if "pending_speech" not in st.session_state:
+    st.session_state.pending_speech = None
 
 ollama_url = st.session_state.cfg_url
 node_online, installed_models = check_ollama_node(ollama_url)
@@ -1248,6 +1090,64 @@ with qa4:
     if st.button("🔧 CODE ASSIST", key="qa_code"):
         quick_prompt = "I need coding help. Ask me what I'm building and which language, then use your learned knowledge to assist."
 
+# --- 📞 VOICE CHANNEL: always-on browser mic, wake word "Jarvis", spoken replies ---
+flush_browser_speech()
+if st.session_state.cfg_call_mode:
+    with st.container(border=True):
+        st.markdown("### 📞 VOICE CHANNEL")
+        components.html("""
+<style>
+  body { margin:0; background:#010409; color:#7fd4de; font-family: 'Courier New', monospace; font-size: 13px; }
+  #status { color:#00ff66; margin-bottom:6px; }
+  #log div { border-left: 2px solid #00f0ff; padding: 3px 8px; margin: 3px 0; background: rgba(0,240,255,0.04); }
+  #log b { color:#00f0ff; }
+</style>
+<div id="status">Initialising voice channel...</div>
+<div id="log"></div>
+<script>
+(function(){
+  const BRIDGE = "http://localhost:8765/ask";
+  const log = document.getElementById('log');
+  const status = document.getElementById('status');
+  function add(who, text){ const d=document.createElement('div'); d.innerHTML='<b>'+who+'</b> '+text; log.prepend(d); while(log.children.length>8) log.removeChild(log.lastChild); }
+  function speak(t){
+    try{
+      const u=new SpeechSynthesisUtterance(t); u.rate=1.02; u.pitch=0.95;
+      const vs=speechSynthesis.getVoices();
+      const pick=vs.find(v=>/en-GB/i.test(v.lang)&&/daniel|george|ryan|male/i.test(v.name))||vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang));
+      if(pick) u.voice=pick; speechSynthesis.cancel(); speechSynthesis.speak(u);
+    }catch(e){}
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ status.textContent='Speech recognition unsupported here — use Chrome or Edge.'; return; }
+  const rec = new SR(); rec.continuous=true; rec.interimResults=false; rec.lang='en-US';
+  let busy=false;
+  rec.onresult = async (e)=>{
+    const heard = e.results[e.results.length-1][0].transcript.trim();
+    const low = heard.toLowerCase();
+    const idx = low.indexOf('jarvis');
+    if(idx<0) return;                      // not addressed to J.A.R.V.I.S. — ignore
+    const cmd = heard.slice(idx+6).replace(/^[\s,.!?]+/,'').trim();
+    add('YOU', heard);
+    if(!cmd){ add('J.A.R.V.I.S.','Yes, sir?'); speak('Yes, sir?'); return; }
+    if(busy) return; busy=true; status.textContent='Processing...';
+    try{
+      const r = await fetch(BRIDGE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:cmd})});
+      const j = await r.json(); const reply = j.reply || 'No response, sir.';
+      add('J.A.R.V.I.S.', reply); speak(reply);
+    }catch(err){
+      const m='Voice bridge offline, sir. In a terminal run: python jarvis_voice.py';
+      add('SYSTEM', m); speak(m);
+    }
+    busy=false; status.textContent='Listening — say "Jarvis, ..."';
+  };
+  rec.onend = ()=>{ setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };
+  rec.onerror = (e)=>{ if(e.error==='not-allowed'){ status.textContent='Microphone blocked. Click the lock/camera icon in the address bar and allow the microphone, then reload.'; } };
+  try{ rec.start(); status.textContent='Listening — say "Jarvis, ..."'; }catch(e){ status.textContent='Could not start microphone: '+e; }
+})();
+</script>
+""", height=190)
+
 # --- INPUT HANDLING (typed or spoken) ---
 if HAS_MIC:
     mic_col, hint_col = st.columns([1, 5])
@@ -1269,7 +1169,7 @@ if prompt:
     # --- HANDS-FREE PC COMMANDS: handled instantly, no AI round-trip ---
     cmd_reply = None
     try:
-        cmd_reply = parse_local_command(prompt)
+        cmd_reply = parse_local_command(prompt, ollama_url)
     except Exception as e:
         cmd_reply = f"Command engine error: {e}"
     if cmd_reply:
@@ -1337,9 +1237,11 @@ with tab_sys:
                 if not node_online:
                     st.error("AI NODE OFFLINE — start Ollama (`ollama serve`).")
             st.checkbox("Autonomous Web Search", key="cfg_web", disabled=not HAS_WEB)
-            st.checkbox("Voice Replies (J.A.R.V.I.S. speaks)", key="cfg_voice", disabled=not HAS_TTS)
+            st.checkbox("Browser Voice (J.A.R.V.I.S. speaks through this page)", key="cfg_browser_voice")
+            st.checkbox("📞 Always-on Voice Channel (say 'Jarvis, ...')", key="cfg_call_mode")
+            st.checkbox("PC Speaker Voice fallback (pyttsx3)", key="cfg_voice", disabled=not HAS_TTS)
             if not HAS_TTS:
-                st.caption("Install voice output: `pip install pyttsx3`")
+                st.caption("Optional PC voice fallback: `pip install pyttsx3`")
             if not HAS_MIC:
                 st.caption("Install voice input: `pip install streamlit-mic-recorder`")
 
