@@ -101,16 +101,79 @@ def brain_label(settings: dict) -> str:
     return f"LOCAL · {settings.get('ollama_model', '')}"
 
 
+GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+_groq_model_cache = {"key": None, "ts": 0.0, "models": []}
+_EXCLUDE = ("whisper", "tts", "guard", "embed", "moderation", "safety", "compound", "orpheus")
+
+
+def groq_models_live(key: str):
+    """Fetch the chat-capable models currently offered by Groq (cached 5 min)."""
+    import time as _t
+    key = (key or "").strip()
+    if not key:
+        return []
+    if _groq_model_cache["key"] == key and _t.time() - _groq_model_cache["ts"] < 300:
+        return _groq_model_cache["models"]
+    try:
+        r = requests.get(GROQ_MODELS_URL, headers={"Authorization": f"Bearer {key}"}, timeout=15)
+        r.raise_for_status()
+        ids = [m.get("id", "") for m in r.json().get("data", []) if m.get("active", True)]
+        models = sorted(i for i in ids if i and not any(x in i.lower() for x in _EXCLUDE))
+    except Exception:
+        models = []
+    _groq_model_cache.update({"key": key, "ts": _t.time(), "models": models})
+    return models
+
+
+def pick_groq_model(models, want_vision: bool = False):
+    """Choose the best available model from a live list."""
+    if not models:
+        return None
+    low = [(m, m.lower()) for m in models]
+    if want_vision:
+        for m, l in low:
+            if any(k in l for k in ("vision", "scout", "maverick")):
+                return m
+        return None
+    for pref in ("llama-3.3-70b", "70b", "llama-4", "qwen", "llama-3.1-8b", "llama"):
+        for m, l in low:
+            if pref in l:
+                return m
+    return models[0]
+
+
+def resolve_groq_model(settings: dict, want_vision: bool = False):
+    """Make sure the configured Groq model actually exists; repair + persist if not."""
+    key = settings.get("groq_api_key", "").strip()
+    field = "groq_vision_model" if want_vision else "groq_model"
+    models = groq_models_live(key)
+    current = settings.get(field, "")
+    if models and current not in models:
+        fixed = pick_groq_model(models, want_vision)
+        if fixed:
+            settings[field] = fixed
+            save_settings(settings)
+    return settings.get(field)
+
+
 def chat_stream(messages, settings: dict, temperature: float = 0.1, timeout: int = 300):
     """Yield reply tokens from whichever brain is configured."""
     if settings.get("provider") == "cloud":
         key = settings.get("groq_api_key", "").strip()
         if not key:
             raise requests.exceptions.RequestException("Cloud brain selected but no Groq API key is set (SYSTEMS tab).")
-        payload = {"model": settings.get("groq_model"), "messages": messages,
+        model = resolve_groq_model(settings)
+        payload = {"model": model, "messages": messages,
                    "temperature": temperature, "stream": True}
         r = requests.post(GROQ_URL, json=payload, stream=True, timeout=timeout,
                           headers={"Authorization": f"Bearer {key}"})
+        if r.status_code == 404:
+            # Model retired since the list was cached: refresh and retry once
+            _groq_model_cache["ts"] = 0.0
+            model = resolve_groq_model(settings)
+            payload["model"] = model
+            r = requests.post(GROQ_URL, json=payload, stream=True, timeout=timeout,
+                              headers={"Authorization": f"Bearer {key}"})
         r.raise_for_status()
         for line in r.iter_lines():
             if not line:
@@ -307,8 +370,11 @@ def describe_screen(settings: dict = None) -> str:
         b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         question = "Describe what is on this screen concisely, as J.A.R.V.I.S. reporting to sir."
         if settings.get("provider") == "cloud":
+            vmodel = resolve_groq_model(settings, want_vision=True)
+            if not vmodel:
+                return "No vision-capable model is available on your Groq account right now, sir."
             payload = {
-                "model": settings.get("groq_vision_model"),
+                "model": vmodel,
                 "messages": [{"role": "user", "content": [
                     {"type": "text", "text": question},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},

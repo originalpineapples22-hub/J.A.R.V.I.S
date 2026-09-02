@@ -42,7 +42,7 @@ from jarvis_core import (
     HAS_TTS, HAS_BRIGHT, HAS_VOL, HAS_KEYS, HAS_SCREEN,
     tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
     load_settings, save_settings, chat_stream, chat_once, brain_online, brain_label,
-    GROQ_MODELS, DEFAULT_SETTINGS,
+    GROQ_MODELS, DEFAULT_SETTINGS, groq_models_live, pick_groq_model,
 )
 
 try:
@@ -897,8 +897,10 @@ if not str(st.session_state.cfg_url or "").strip().lower().startswith("http"):
     st.session_state.cfg_url = DEFAULT_SETTINGS["ollama_url"]
 if not str(st.session_state.cfg_model or "").strip():
     st.session_state.cfg_model = DEFAULT_SETTINGS["ollama_model"]
-if st.session_state.cfg_groq_model not in GROQ_MODELS:
-    st.session_state.cfg_groq_model = GROQ_MODELS[0]
+_live_groq = groq_models_live(st.session_state.cfg_groq_key) if st.session_state.cfg_groq_key.strip() else []
+GROQ_CHOICES = _live_groq or GROQ_MODELS
+if st.session_state.cfg_groq_model not in GROQ_CHOICES:
+    st.session_state.cfg_groq_model = pick_groq_model(GROQ_CHOICES) or GROQ_CHOICES[0]
 
 
 def current_settings() -> dict:
@@ -932,6 +934,7 @@ if node_online and installed_models and st.session_state.cfg_model not in instal
 local_model = st.session_state.cfg_model
 web_enabled = st.session_state.cfg_web and HAS_WEB
 SETTINGS = current_settings()
+save_settings(SETTINGS)
 brain_ok = brain_online(SETTINGS) if SETTINGS["provider"] == "cloud" else node_online
 
 # --- MAIN HUD HEADER: ARC REACTOR HERO ---
@@ -1261,7 +1264,8 @@ with tab_sys:
                      horizontal=True)
             st.text_input("Groq API key (free at console.groq.com)", value=st.session_state.cfg_groq_key,
                           type="password", key="w_cfg_groq_key", on_change=_sync, args=("w_cfg_groq_key", "cfg_groq_key"))
-            st.selectbox("Cloud model", GROQ_MODELS, index=GROQ_MODELS.index(st.session_state.cfg_groq_model),
+            st.selectbox("Cloud model" + (" (live list from Groq)" if _live_groq else ""), GROQ_CHOICES,
+                         index=GROQ_CHOICES.index(st.session_state.cfg_groq_model),
                          key="w_cfg_groq_model", on_change=_sync, args=("w_cfg_groq_model", "cfg_groq_model"))
             _k = st.session_state.cfg_groq_key.strip()
             if st.session_state.cfg_provider == "cloud" and not _k:
