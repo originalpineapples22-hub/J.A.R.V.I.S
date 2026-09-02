@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
     "groq_vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
     "whisper_model": "base.en",                # tiny.en (fastest) / base.en / small.en (most accurate)
     "pc_voice": False,                         # bridge also speaks through PC speakers (when HUD is closed)
+    "follow_up_seconds": 8,                    # after a reply, keep talking without saying "Jarvis" again
 }
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
@@ -588,12 +589,16 @@ import difflib as _difflib
 def extract_wake_command(text: str):
     """Fuzzy wake-word detection. 'Jarvis', 'Javis', 'Jervis', 'Jarvez'... all
     count. Returns (found, command_after_wake_word)."""
-    words = re.findall(r"[A-Za-z']+", text or "")
+    text = re.sub(r"j\.?a\.?r\.?v\.?i\.?s\.?", "jarvis", text or "", flags=re.IGNORECASE)  # "J.A.R.V.I.S."
+    words = re.findall(r"[A-Za-z']+", text)
+    known = {"jarvis", "javis", "jervis", "jarvez", "jarvus", "jarves", "jarbis", "darvis",
+             "garvis", "charvis", "travis", "jarviss", "jarvist", "jarvi", "jarv"}
     for i, w in enumerate(words):
-        lw = w.lower()
-        if lw.startswith(("jarv", "jerv", "javi", "jarb", "jav")) or \
-           _difflib.SequenceMatcher(None, lw, "jarvis").ratio() >= 0.75:
+        lw = w.lower().strip("'").replace("'s", "")
+        if lw in known or lw.startswith(("jarv", "jerv", "javi", "jarb", "darv")) or \
+           _difflib.SequenceMatcher(None, lw, "jarvis").ratio() >= 0.72:
             rest = " ".join(words[i + 1:]).strip()
+            rest = re.sub(r"^(?:hey|hi|hello|yo|ok|okay|please)\s+", "", rest, flags=re.IGNORECASE)
             return True, rest
     return False, ""
 

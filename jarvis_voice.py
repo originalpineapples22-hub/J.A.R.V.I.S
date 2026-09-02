@@ -41,7 +41,8 @@ _history = []
 _events = []          # {"id","ts","heard","reply"}
 _lock = threading.Lock()
 _ear = {"status": "starting", "engine": "none", "last_heard": "", "listening": False}
-_mute_until = 0.0     # ignore the mic briefly while J.A.R.V.I.S. is speaking (no self-echo)
+_echo_guard = {"until": 0.0, "text": ""}   # while J.A.R.V.I.S. speaks, ignore audio that matches its own words
+_attentive_until = 0.0                     # after "Jarvis" alone or a reply: accept the next sentence with no wake word
 
 
 # ------------------------------------------------------------------ brain
@@ -72,14 +73,29 @@ def handle_text(text: str, source: str = "hud") -> str:
     return reply
 
 
+def _is_self_echo(text: str) -> bool:
+    """True if what we heard is J.A.R.V.I.S.'s own voice coming back through the mic."""
+    import difflib
+    if time.time() > _echo_guard["until"] or not _echo_guard["text"]:
+        return False
+    heard = set(text.lower().split())
+    own = set(_echo_guard["text"].lower().split())
+    if heard and len(heard & own) / len(heard) >= 0.6:
+        return True
+    return difflib.SequenceMatcher(None, text.lower(), _echo_guard["text"].lower()).ratio() > 0.5
+
+
 def push_event(heard: str, reply: str):
-    global _mute_until
+    global _attentive_until
     with _lock:
         _events.append({"id": len(_events) + 1, "ts": datetime.now().strftime("%H:%M:%S"),
                         "heard": heard, "reply": reply})
         del _events[:-200]
-    # Assume ~14 chars/sec of browser speech; stay deaf meanwhile to avoid hearing ourselves
-    _mute_until = time.time() + min(20, 1.0 + len(clean_for_speech(reply)) / 14.0)
+    spoken = clean_for_speech(reply)
+    # Keep listening while speaking; just ignore our own words (~14 chars/sec)
+    _echo_guard.update(until=time.time() + min(25, 1.5 + len(spoken) / 14.0), text=spoken)
+    # Call-style follow-up: for a few seconds the operator can continue without the wake word
+    _attentive_until = _echo_guard["until"] + float(load_settings().get("follow_up_seconds", 8))
     if load_settings().get("pc_voice") and HAS_TTS:
         threading.Thread(target=tts_speak, args=(clean_for_speech(reply),), daemon=True).start()
 
@@ -105,8 +121,10 @@ def ear_loop():
         print(f"[ear] faster-whisper unavailable ({e}); using Google recognizer")
 
     rec = sr.Recognizer()
+    rec.energy_threshold = 300
     rec.dynamic_energy_threshold = True
-    rec.pause_threshold = 0.7
+    rec.pause_threshold = 0.8
+    rec.non_speaking_duration = 0.4
     try:
         mic = sr.Microphone(sample_rate=16000)
         with mic as src:
@@ -119,34 +137,49 @@ def ear_loop():
         if whisper is not None:
             raw = audio.get_raw_data(convert_rate=16000, convert_width=2)
             arr = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
-            segments, _ = whisper.transcribe(arr, language="en", beam_size=1, vad_filter=True)
-            return " ".join(seg.text for seg in segments).strip()
+            segments, _ = whisper.transcribe(
+                arr, language="en", beam_size=3, vad_filter=True,
+                condition_on_previous_text=False,
+                initial_prompt="Jarvis, open YouTube. Jarvis, what time is it? Jarvis.",  # biases Whisper toward the name
+            )
+            text = " ".join(seg.text for seg in segments).strip()
+            # Whisper hallucinates these on near-silence
+            return "" if text.lower().strip(" .!") in ("you", "thank you", "thanks", "bye", "the", "uh") else text
         try:
             return rec.recognize_google(audio)
         except Exception:
             return ""
 
+    global _attentive_until
     _ear.update(status="listening", listening=True)
     print(f"[ear] online — engine: {_ear['engine']}. Say 'Jarvis, ...'")
     while True:
         try:
             with mic as src:
-                audio = rec.listen(src, phrase_time_limit=8)
-            if time.time() < _mute_until:
-                continue
+                audio = rec.listen(src, phrase_time_limit=12)
             text = transcribe(audio)
             if not text:
+                continue
+            if _is_self_echo(text):
                 continue
             _ear["last_heard"] = text
             found, cmd = extract_wake_command(text)
             if not found:
-                continue
+                if time.time() < _attentive_until:
+                    cmd = text.strip()          # follow-up / attentive mode: no wake word needed
+                else:
+                    continue
             if any(s in cmd.lower() for s in ("stand down", "go to sleep", "stop listening")):
                 push_event(text, "Standing down, sir. Voice systems offline.")
                 _ear.update(status="standing down", listening=False)
                 return
+            if not cmd:
+                # Heard just "Jarvis" — acknowledge and wait for the order
+                _attentive_until = time.time() + 8
+                push_event(text, "Yes, sir?")
+                continue
             _ear["status"] = "processing"
-            reply = "Yes, sir?" if not cmd else handle_text(cmd, source="ear")
+            reply = handle_text(cmd, source="ear")
             push_event(text, reply)
             _ear["status"] = "listening"
         except Exception as e:
