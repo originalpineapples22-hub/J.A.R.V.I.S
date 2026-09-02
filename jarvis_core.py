@@ -135,11 +135,15 @@ def pick_groq_model(models, want_vision: bool = False):
             if any(k in l for k in ("vision", "scout", "maverick")):
                 return m
         return None
-    for pref in ("llama-3.3-70b", "70b", "llama-4", "qwen", "llama-3.1-8b", "llama"):
-        for m, l in low:
+    thinking = ("qwen3", "deepseek", "r1", "think")
+    ranked = [(m, l) for m, l in low if not any(t in l for t in thinking)] + \
+             [(m, l) for m, l in low if any(t in l for t in thinking)]
+    for pref in ("llama-3.3-70b", "llama-4-maverick", "llama-4", "70b", "gpt-oss-120b",
+                 "llama-3.1-8b", "llama", "gpt-oss", "kimi", "mixtral", "gemma"):
+        for m, l in ranked:
             if pref in l:
                 return m
-    return models[0]
+    return ranked[0][0]
 
 
 def resolve_groq_model(settings: dict, want_vision: bool = False):
@@ -156,8 +160,52 @@ def resolve_groq_model(settings: dict, want_vision: bool = False):
     return settings.get(field)
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def strip_thinking(text: str) -> str:
+    """Remove reasoning blocks (<think>...</think>) that some models emit.
+    An unclosed <think> hides everything after it; a partial '<thi' tail is
+    held back so a tag split across tokens never leaks."""
+    text = _THINK_RE.sub("", text)
+    low = text.lower()
+    open_idx = low.find("<think>")
+    if open_idx >= 0:
+        text = text[:open_idx]
+    tail = text[-7:].lower()
+    for n in range(6, 0, -1):
+        if "<think>".startswith(tail[-n:]) and text.lower().endswith("<think>"[:n]):
+            return text[:-n]
+    return text
+
+
+def _filter_thinking(token_iter):
+    """Wrap a token stream so only non-thinking text is yielded, live."""
+    raw, shown = "", ""
+    for tok in token_iter:
+        raw += tok
+        visible = strip_thinking(raw)
+        if visible.startswith(shown):
+            delta = visible[len(shown):]
+        else:  # visible text shrank/changed (rare) — resend from scratch marker
+            delta = visible
+            shown = ""
+        if delta:
+            shown += delta
+            yield delta
+    # flush: trailing held-back characters that turned out not to be a tag
+    final = strip_thinking(raw).lstrip() if not shown else strip_thinking(raw)
+    if final.startswith(shown) and len(final) > len(shown):
+        yield final[len(shown):]
+
+
 def chat_stream(messages, settings: dict, temperature: float = 0.1, timeout: int = 300):
-    """Yield reply tokens from whichever brain is configured."""
+    """Yield reply tokens from whichever brain is configured (thinking blocks removed)."""
+    yield from _filter_thinking(_chat_stream_raw(messages, settings, temperature, timeout))
+
+
+def _chat_stream_raw(messages, settings: dict, temperature: float = 0.1, timeout: int = 300):
+    """Yield raw reply tokens from whichever brain is configured."""
     if settings.get("provider") == "cloud":
         key = settings.get("groq_api_key", "").strip()
         if not key:
