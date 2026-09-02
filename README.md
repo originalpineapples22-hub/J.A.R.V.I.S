@@ -10,7 +10,7 @@ programming languages and technologies and remember them permanently**.
 ```bash
 pip install -r requirements.txt
 ollama pull qwen2.5-coder:14b   # or any model you prefer
-streamlit run jarvis.py
+python -m streamlit run jarvis.py
 ```
 
 Make sure Ollama is running (`ollama serve`, default URL `http://localhost:11434`).

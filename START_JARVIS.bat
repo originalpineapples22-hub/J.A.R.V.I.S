@@ -35,7 +35,7 @@ echo [4/5] Starting voice bridge...
 start "J.A.R.V.I.S. VOICE BRIDGE" /min cmd /k python jarvis_voice.py
 
 echo [5/5] Launching HUD...
-start "J.A.R.V.I.S. HUD" /min cmd /k streamlit run jarvis.py --server.headless true
+start "J.A.R.V.I.S. HUD" /min cmd /k python -m streamlit run jarvis.py --server.headless true
 timeout /t 6 /nobreak >nul
 start "" http://localhost:8501
 
