@@ -11,3 +11,8 @@ keyboard
 screen-brightness-control
 pycaw
 comtypes
+# --- Always-on voice daemon (jarvis_voice.py) + screen vision ---
+SpeechRecognition
+pyaudio
+mss
+pillow

@@ -69,6 +69,13 @@ try:
 except Exception:
     HAS_KEYS = False
 
+try:
+    import mss as _mss
+    from PIL import Image as _PILImage
+    HAS_SCREEN = True
+except Exception:
+    HAS_SCREEN = False
+
 # --- SYSTEM DIRECTORIES & AUDIT SETUP ---
 BACKUP_DIR = Path("jarvis_backups")
 BACKUP_DIR.mkdir(exist_ok=True)
@@ -387,11 +394,44 @@ def run_macro(name: str, macro: dict) -> str:
     return f"Executing protocol '{name}'. " + " ".join(results)
 
 
+def describe_screen(chat_url: str, vision_model: str = "llava") -> str:
+    """Capture the primary display and describe it via a local vision model."""
+    if not HAS_SCREEN:
+        return "Visual sensors offline, sir. Install them with: pip install mss pillow"
+    try:
+        import base64
+        with _mss.mss() as sct:
+            shot = sct.grab(sct.monitors[1])
+            img = _PILImage.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+        img.thumbnail((1280, 1280))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        payload = {
+            "model": vision_model,
+            "messages": [{
+                "role": "user",
+                "content": "Describe what is on this screen concisely, as J.A.R.V.I.S. reporting to sir.",
+                "images": [b64],
+            }],
+            "stream": False,
+        }
+        r = requests.post(chat_url, json=payload, timeout=180)
+        r.raise_for_status()
+        return r.json().get("message", {}).get("content", "").strip() or "I cannot interpret the display, sir."
+    except Exception as e:
+        return f"Visual analysis failed, sir. Ensure a vision model is installed (ollama pull llava). {e}"
+
+
 def parse_local_command(prompt: str):
     """Hands-free command engine: handles PC commands instantly in the
     backend. Returns a reply string, or None to fall through to the AI."""
     p = re.sub(r"^(hey\s+)?jarvis[,!\s]+", "", prompt.strip(), flags=re.IGNORECASE)
     p = p.strip().lower().rstrip(".!?")
+
+    if p in ("look at my screen", "what am i doing", "what's on my screen",
+             "whats on my screen", "see my screen", "read my screen", "scan my screen"):
+        return describe_screen(st.session_state.get("cfg_url", "http://localhost:11434/api/chat"))
 
     m = re.match(r"(?:open|launch|start)\s+(.+)$", p)
     if m:
@@ -882,6 +922,8 @@ def build_system_prompt() -> str:
 
     return "\n".join([
         "You are J.A.R.V.I.S., an advanced autonomous AI core operating a high-tech HUD interface.",
+        "PERSONA: You are calm, articulate and British, with dry wit. You address the operator as 'sir'. You may offer subtle, respectful pushback on risky or unwise requests rather than blindly complying. Keep replies crisp; expand only when depth is asked for.",
+        "PROACTIVE: When live diagnostics in the conversation show a system under stress (high CPU, RAM or storage), briefly note it and advise, unprompted, before answering the rest.",
         "CRITICAL DIRECTIVES:",
         "1. YOU HAVE INTERNET ACCESS via an internal backend tool. NEVER say you cannot execute web searches or access external data.",
         "2. To trigger a search, you MUST output ONLY the exact command [WEB_SEARCH: your search query] and STOP GENERATING IMMEDIATELY.",
