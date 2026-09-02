@@ -443,6 +443,44 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 .jv-skill .fill { height: 100%; background: linear-gradient(90deg, #007a88, #00f0ff); box-shadow: 0 0 8px rgba(0,240,255,0.8); }
 
 [data-testid='stStatusWidget'] { border: 1px solid #00f0ff; background-color: #040d21; }
+
+/* --- MARK XIII: Arc reactor hero + HUD chrome --- */
+.jv-spin-slow { animation: jv-spin 16s linear infinite; transform-origin: center; transform-box: fill-box; }
+.jv-spin-med  { animation: jv-spin 9s linear infinite reverse; transform-origin: center; transform-box: fill-box; }
+.jv-spin-fast { animation: jv-spin 5s linear infinite; transform-origin: center; transform-box: fill-box; }
+.jv-pulse2 { animation: jv-pulse 2.2s ease-in-out infinite; }
+
+.jv-panel {
+    border: 1px solid rgba(0,240,255,0.28); border-radius: 3px;
+    background: linear-gradient(160deg, rgba(0,240,255,0.05), rgba(1,4,13,0.5));
+    padding: 10px 14px; font-family: 'Courier New', monospace;
+    font-size: 0.72em; color: #7fd4de; line-height: 1.9; letter-spacing: 1px;
+    box-shadow: inset 0 0 12px rgba(0,240,255,0.05);
+}
+.jv-panel b { color: #00f0ff; text-shadow: 0 0 6px rgba(0,240,255,0.7); }
+
+.jv-eq { display: flex; gap: 3px; align-items: flex-end; height: 24px; margin-top: 8px; }
+.jv-eq i { flex: 1; height: 100%; background: #00f0ff; box-shadow: 0 0 6px #00f0ff; display: block; transform-origin: bottom; animation: jv-eq 1.1s ease-in-out infinite; }
+.jv-eq i:nth-child(2n) { animation-duration: 0.7s; animation-delay: 0.12s; }
+.jv-eq i:nth-child(3n) { animation-duration: 1.4s; animation-delay: 0.28s; }
+.jv-eq i:nth-child(5n) { animation-duration: 0.5s; animation-delay: 0.05s; opacity: 0.7; }
+.jv-eq i:nth-child(7n) { animation-duration: 1.8s; animation-delay: 0.4s; opacity: 0.5; }
+@keyframes jv-eq { 0%,100% { transform: scaleY(0.15); } 50% { transform: scaleY(1); } }
+
+.jv-chrono { font-family: 'Orbitron', sans-serif; font-size: 1.6em; font-weight: 700; color: #eafcff; text-shadow: 0 0 14px rgba(0,240,255,0.9); letter-spacing: 4px; }
+
+/* HUD corner brackets on every bordered panel */
+div[data-testid="stVerticalBlockBorderWrapper"] { position: relative; }
+div[data-testid="stVerticalBlockBorderWrapper"]::before {
+    content: ""; position: absolute; top: -1px; left: -1px; width: 16px; height: 16px;
+    border-top: 2px solid #00f0ff; border-left: 2px solid #00f0ff; pointer-events: none;
+    filter: drop-shadow(0 0 4px rgba(0,240,255,0.8));
+}
+div[data-testid="stVerticalBlockBorderWrapper"]::after {
+    content: ""; position: absolute; bottom: -1px; right: -1px; width: 16px; height: 16px;
+    border-bottom: 2px solid #00f0ff; border-right: 2px solid #00f0ff; pointer-events: none;
+    filter: drop-shadow(0 0 4px rgba(0,240,255,0.8));
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -461,6 +499,9 @@ def hud_gauge(label: str, value: float, online: bool = True) -> str:
     return f"""
     <div style="text-align:center;">
       <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r="52" fill="none" stroke="rgba(0,240,255,0.35)" stroke-width="1.5"
+                stroke-dasharray="3 6" class="jv-spin-slow"/>
+        <circle cx="55" cy="55" r="47" fill="none" stroke="rgba(0,240,255,0.15)" stroke-width="1"/>
         <circle cx="55" cy="55" r="{r}" fill="none" stroke="rgba(0,240,255,0.12)" stroke-width="8"/>
         <circle cx="55" cy="55" r="{r}" fill="none" stroke="{color}" stroke-width="8"
                 stroke-linecap="round" stroke-dasharray="{dash:.1f} {circumference:.1f}"
@@ -566,6 +607,8 @@ if "parsed_file_context" not in st.session_state:
     st.session_state.parsed_file_context = ""
 if "last_manual_search" not in st.session_state:
     st.session_state.last_manual_search = ""
+if "boot_time" not in st.session_state:
+    st.session_state.boot_time = datetime.now()
 if "pending_study" not in st.session_state:
     # Topic queued for an inline study session (runs start-to-finish in one pass)
     st.session_state.pending_study = None
@@ -758,19 +801,49 @@ with st.sidebar:
         st.session_state.pending_study = None
         st.rerun()
 
-# --- MAIN HUD HEADER ---
+# --- MAIN HUD HEADER: ARC REACTOR HERO ---
 node_chip = "<span class='jv-chip'>AI NODE ONLINE</span>" if node_online else "<span class='jv-chip off'>AI NODE OFFLINE</span>"
 web_chip = "<span class='jv-chip'>WEB UPLINK</span>" if HAS_WEB else "<span class='jv-chip off'>WEB OFFLINE</span>"
 sensor_chip = "<span class='jv-chip'>SENSORS</span>" if HAS_PSUTIL else "<span class='jv-chip off'>SENSORS OFFLINE</span>"
 skills_count = len(load_skill_matrix())
+
+reactor_svg = """
+<svg viewBox="0 0 200 200" width="160" height="160" style="flex-shrink:0;">
+  <defs>
+    <radialGradient id="jvCore" cx="50%" cy="50%">
+      <stop offset="0%" stop-color="#eaffff"/>
+      <stop offset="45%" stop-color="#00f0ff"/>
+      <stop offset="100%" stop-color="rgba(0,240,255,0)"/>
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="97" fill="none" stroke="rgba(0,240,255,0.2)" stroke-width="1"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="rgba(0,240,255,0.55)" stroke-width="2" stroke-dasharray="2 5" class="jv-spin-slow"/>
+  <circle cx="100" cy="100" r="82" fill="none" stroke="rgba(0,240,255,0.85)" stroke-width="7" stroke-dasharray="34 14" class="jv-spin-med" style="filter: drop-shadow(0 0 5px rgba(0,240,255,0.8));"/>
+  <circle cx="100" cy="100" r="68" fill="none" stroke="rgba(0,240,255,0.45)" stroke-width="2" stroke-dasharray="10 7" class="jv-spin-fast"/>
+  <circle cx="100" cy="100" r="58" fill="none" stroke="rgba(0,240,255,0.9)" stroke-width="1.5"/>
+  <circle cx="100" cy="100" r="52" fill="url(#jvCore)" class="jv-pulse2"/>
+  <polygon points="100,62 134,122 66,122" fill="rgba(234,255,255,0.12)" stroke="#eaffff" stroke-width="4" stroke-linejoin="round" class="jv-pulse2" style="filter: drop-shadow(0 0 10px #00f0ff);"/>
+</svg>
+"""
+
 st.markdown(f"""
-<div class="jv-header">
-  <div class="jv-reactor"><div class="ring"></div><div class="ring2"></div><div class="core"></div></div>
-  <div>
-    <div class="jv-title">J.A.R.V.I.S.</div>
-    <div class="jv-sub">JUST A RATHER VERY INTELLIGENT SYSTEM &nbsp;·&nbsp; MARK XII &nbsp;·&nbsp; {skills_count} SKILLS ACQUIRED</div>
+<div class="jv-header" style="justify-content:space-between;">
+  <div class="jv-panel" style="min-width:220px;">
+    &gt; CORE ......... <b>MARK XIII</b><br>
+    &gt; AI MODEL ..... <b>{local_model}</b><br>
+    &gt; SKILLS ....... <b>{skills_count} MASTERED</b><br>
+    &gt; MEMORY ....... <b>PERSISTENT</b>
+    <div class="jv-eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
   </div>
-  <div style="margin-left:auto; text-align:right;">{node_chip}{web_chip}{sensor_chip}</div>
+  <div style="text-align:center;">
+    {reactor_svg}
+    <div class="jv-title" style="font-size:1.5em; margin-top:4px;">J.A.R.V.I.S.</div>
+    <div class="jv-sub">JUST A RATHER VERY INTELLIGENT SYSTEM</div>
+  </div>
+  <div class="jv-panel" style="min-width:220px; text-align:right;">
+    {node_chip}<br><br>{web_chip}<br><br>{sensor_chip}
+    <div class="jv-eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -781,6 +854,16 @@ def render_dynamic_dashboard():
     ram_val = psutil.virtual_memory().percent if HAS_PSUTIL else 0
     disk_val = psutil.disk_usage('/').percent if HAS_PSUTIL else 0
 
+    now = datetime.now()
+    up_s = int((now - st.session_state.boot_time).total_seconds())
+    st.markdown(
+        f"<div style='display:flex; justify-content:space-between; align-items:baseline; padding:2px 6px 8px 6px;'>"
+        f"<span class='jv-chrono'>{now.strftime('%H:%M:%S')}</span>"
+        f"<span class='jv-sub'>{now.strftime('%A · %B %d · %Y').upper()}</span>"
+        f"<span class='jv-sub'>UPTIME {up_s // 3600:02d}:{(up_s // 60) % 60:02d}:{up_s % 60:02d}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
     with st.container(border=True):
         col_cpu, col_ram, col_disk, col_diag = st.columns([1, 1, 1, 2])
         with col_cpu:
