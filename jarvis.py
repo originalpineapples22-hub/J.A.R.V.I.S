@@ -900,6 +900,12 @@ if "cfg_call_mode" not in st.session_state:
 if "pending_speech" not in st.session_state:
     st.session_state.pending_speech = None
 
+# Self-repair: never let the AI node URL or model go blank
+if not str(st.session_state.cfg_url or "").strip().lower().startswith("http"):
+    st.session_state.cfg_url = "http://localhost:11434/api/chat"
+if not str(st.session_state.cfg_model or "").strip():
+    st.session_state.cfg_model = "qwen2.5-coder:14b"
+
 ollama_url = st.session_state.cfg_url
 node_online, installed_models = check_ollama_node(ollama_url)
 if node_online and installed_models and st.session_state.cfg_model not in installed_models:
@@ -1229,17 +1235,28 @@ with tab_sys:
     with sys_c1:
         with st.container(border=True):
             st.markdown("### 🤖 AI UPLINK")
-            st.text_input("Local AI Node URL", key="cfg_url")
+            def _sync(src, dst):
+                st.session_state[dst] = st.session_state[src]
+
+            st.text_input("Local AI Node URL", value=st.session_state.cfg_url, key="w_cfg_url",
+                          on_change=_sync, args=("w_cfg_url", "cfg_url"))
             if node_online and installed_models:
-                st.selectbox("Active AI Model", installed_models, key="cfg_model")
+                idx = installed_models.index(st.session_state.cfg_model) if st.session_state.cfg_model in installed_models else 0
+                st.selectbox("Active AI Model", installed_models, index=idx, key="w_cfg_model",
+                             on_change=_sync, args=("w_cfg_model", "cfg_model"))
             else:
-                st.text_input("Active AI Model", key="cfg_model")
+                st.text_input("Active AI Model", value=st.session_state.cfg_model, key="w_cfg_model",
+                              on_change=_sync, args=("w_cfg_model", "cfg_model"))
                 if not node_online:
                     st.error("AI NODE OFFLINE — start Ollama (`ollama serve`).")
-            st.checkbox("Autonomous Web Search", key="cfg_web", disabled=not HAS_WEB)
-            st.checkbox("Browser Voice (J.A.R.V.I.S. speaks through this page)", key="cfg_browser_voice")
-            st.checkbox("📞 Always-on Voice Channel (say 'Jarvis, ...')", key="cfg_call_mode")
-            st.checkbox("PC Speaker Voice fallback (pyttsx3)", key="cfg_voice", disabled=not HAS_TTS)
+            st.checkbox("Autonomous Web Search", value=st.session_state.cfg_web, key="w_cfg_web",
+                        on_change=_sync, args=("w_cfg_web", "cfg_web"), disabled=not HAS_WEB)
+            st.checkbox("Browser Voice (J.A.R.V.I.S. speaks through this page)", value=st.session_state.cfg_browser_voice,
+                        key="w_cfg_browser_voice", on_change=_sync, args=("w_cfg_browser_voice", "cfg_browser_voice"))
+            st.checkbox("📞 Always-on Voice Channel (say 'Jarvis, ...')", value=st.session_state.cfg_call_mode,
+                        key="w_cfg_call_mode", on_change=_sync, args=("w_cfg_call_mode", "cfg_call_mode"))
+            st.checkbox("PC Speaker Voice fallback (pyttsx3)", value=st.session_state.cfg_voice,
+                        key="w_cfg_voice", on_change=_sync, args=("w_cfg_voice", "cfg_voice"), disabled=not HAS_TTS)
             if not HAS_TTS:
                 st.caption("Optional PC voice fallback: `pip install pyttsx3`")
             if not HAS_MIC:
