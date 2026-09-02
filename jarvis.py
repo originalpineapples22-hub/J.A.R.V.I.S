@@ -915,7 +915,8 @@ def current_settings() -> dict:
 
 def _sync(src, dst):
     """Copy a widget value into its setting and persist to disk."""
-    st.session_state[dst] = st.session_state[src]
+    val = st.session_state[src]
+    st.session_state[dst] = val.strip() if isinstance(val, str) else val
     save_settings(current_settings())
 
 
@@ -1262,8 +1263,28 @@ with tab_sys:
                           type="password", key="w_cfg_groq_key", on_change=_sync, args=("w_cfg_groq_key", "cfg_groq_key"))
             st.selectbox("Cloud model", GROQ_MODELS, index=GROQ_MODELS.index(st.session_state.cfg_groq_model),
                          key="w_cfg_groq_model", on_change=_sync, args=("w_cfg_groq_model", "cfg_groq_model"))
-            if st.session_state.cfg_provider == "cloud" and not st.session_state.cfg_groq_key.strip():
-                st.warning("Cloud selected but no API key yet — paste your Groq key above.")
+            _k = st.session_state.cfg_groq_key.strip()
+            if st.session_state.cfg_provider == "cloud" and not _k:
+                st.warning("Cloud selected but no API key yet — paste your Groq key above and press ENTER.")
+            elif _k:
+                st.caption(f"Saved key: `{_k[:7]}…` ({len(_k)} chars)")
+                if not _k.startswith("gsk_"):
+                    st.error("That doesn't look like a Groq key — Groq keys start with `gsk_`. Get one at console.groq.com → API Keys.")
+            if st.button("🧪 TEST CLOUD BRAIN", key="brain_test"):
+                test_settings = dict(current_settings(), provider="cloud")
+                try:
+                    with st.spinner("Contacting Groq..."):
+                        answer = chat_once([{"role": "user", "content": "Reply with exactly: Cloud brain online, sir."}],
+                                           test_settings, temperature=0.0, timeout=30)
+                    st.success(f"✅ Groq responded: {answer.strip()[:120]}")
+                except Exception as e:
+                    msg = str(e)
+                    if "401" in msg:
+                        st.error("❌ 401 Unauthorized — Groq rejected this key. Re-copy the full key from console.groq.com (starts with gsk_), paste it above, press ENTER, then test again.")
+                    elif "429" in msg:
+                        st.error("❌ 429 Rate limited — free-tier limit hit. Wait a bit or switch to llama-3.1-8b-instant.")
+                    else:
+                        st.error(f"❌ {msg}")
 
         with st.container(border=True):
             st.markdown("### 🤖 LOCAL AI NODE (Ollama)")
