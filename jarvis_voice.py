@@ -25,12 +25,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from jarvis_core import (
-    PERSONA, DEFAULT_OLLAMA_URL, ollama_chat, parse_local_command,
-    tts_speak, clean_for_speech, HAS_TTS, SCREEN_PHRASES, describe_screen,
+    PERSONA, parse_local_command, chat_once, load_settings, brain_label,
+    tts_speak, clean_for_speech, HAS_TTS,
 )
 
-OLLAMA_URL = DEFAULT_OLLAMA_URL
-TEXT_MODEL = "qwen2.5-coder:14b"
 PORT = 8765
 LOG_FILE = Path("jarvis_voice_log.json")
 
@@ -54,8 +52,9 @@ def handle_text(text: str) -> str:
     text = text.strip()
     if not text:
         return "Yes, sir?"
+    settings = load_settings()  # re-read each time so HUD changes apply instantly
     try:
-        direct = parse_local_command(text, OLLAMA_URL)
+        direct = parse_local_command(text, settings)
     except Exception as e:
         direct = f"Command engine error: {e}"
     if direct:
@@ -63,9 +62,9 @@ def handle_text(text: str) -> str:
     else:
         messages = [{"role": "system", "content": PERSONA}] + _history[-8:] + [{"role": "user", "content": text}]
         try:
-            reply = ollama_chat(messages, OLLAMA_URL, TEXT_MODEL, temperature=0.4) or "I have no answer, sir."
+            reply = chat_once(messages, settings, temperature=0.4) or "I have no answer, sir."
         except Exception as e:
-            reply = f"I could not reach my cognitive core, sir. Is Ollama running? ({e})"
+            reply = f"I could not reach my cognitive core, sir. ({e})"
     _history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
     log_exchange(text, reply)
     print(f"[you]      {text}\n[jarvis]   {reply}\n")
@@ -85,7 +84,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/health"):
-            body = json.dumps({"status": "online", "model": TEXT_MODEL}).encode()
+            body = json.dumps({"status": "online", "brain": brain_label(load_settings())}).encode()
             self.send_response(200)
             self._cors()
             self.send_header("Content-Type", "application/json")

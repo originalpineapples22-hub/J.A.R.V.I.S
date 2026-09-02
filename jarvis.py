@@ -41,6 +41,8 @@ import streamlit.components.v1 as components
 from jarvis_core import (
     HAS_TTS, HAS_BRIGHT, HAS_VOL, HAS_KEYS, HAS_SCREEN,
     tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
+    load_settings, save_settings, chat_stream, chat_once, brain_online, brain_label,
+    GROQ_MODELS, DEFAULT_SETTINGS,
 )
 
 try:
@@ -333,11 +335,7 @@ def fabricate_files(response_text: str, chat_url: str, model: str):
                               f"Current file content:\n{content}\n\n"
                               "Output ONLY the complete corrected file content. No explanations, no markdown fences.")
                 try:
-                    payload = {"model": model, "messages": [{"role": "user", "content": fix_prompt}],
-                               "stream": False, "options": {"temperature": 0.1}}
-                    r = requests.post(chat_url, json=payload, timeout=300)
-                    r.raise_for_status()
-                    fixed = r.json().get("message", {}).get("content", "").strip()
+                    fixed = chat_once([{"role": "user", "content": fix_prompt}], SETTINGS, temperature=0.1).strip()
                     cm2 = re.search(bt + r"(?:\w+)?\s*(.*?)\s*" + bt, fixed, re.DOTALL)
                     content = ((cm2.group(1) if cm2 else fixed).strip() or content) + "\n"
                     path.write_text(content, encoding="utf-8")
@@ -838,22 +836,11 @@ def run_study_session(topic: str, chat_url: str, model: str):
             stream_box = st.empty()
             lesson_text = ""
             try:
-                payload = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": study_system},
-                        {"role": "user", "content": study_prompt},
-                    ],
-                    "stream": True,
-                    "options": {"temperature": 0.1},
-                }
-                response = requests.post(chat_url, json=payload, stream=True, timeout=600)
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if line:
-                        chunk = json.loads(line.decode("utf-8"))
-                        lesson_text += chunk.get("message", {}).get("content", "")
-                        stream_box.markdown(lesson_text[-1200:] + "▌")
+                study_msgs = [{"role": "system", "content": study_system},
+                              {"role": "user", "content": study_prompt}]
+                for token in chat_stream(study_msgs, SETTINGS, temperature=0.1, timeout=600):
+                    lesson_text += token
+                    stream_box.markdown(lesson_text[-1200:] + "▌")
             except requests.exceptions.RequestException as e:
                 status.update(label=f"⚠️ Module {i + 1}/{total} failed: connection lost", state="error", expanded=False)
                 st.session_state.repl_logs.append(f"[LEARNING CORTEX] Connection error on module {i + 1}: {e}\n")
@@ -885,10 +872,15 @@ def run_study_session(topic: str, chat_url: str, model: str):
     })
 
 # --- CORE CONFIG (no sidebar — everything lives in the ⚙️ SYSTEMS tab) ---
-if "cfg_url" not in st.session_state:
-    st.session_state.cfg_url = "http://localhost:11434/api/chat"
-if "cfg_model" not in st.session_state:
-    st.session_state.cfg_model = "qwen2.5-coder:14b"
+# Brain settings persist in jarvis_settings.json (git-ignored: holds your API key).
+if "settings_loaded" not in st.session_state:
+    _saved = load_settings()
+    st.session_state.cfg_provider = _saved["provider"]
+    st.session_state.cfg_url = _saved["ollama_url"]
+    st.session_state.cfg_model = _saved["ollama_model"]
+    st.session_state.cfg_groq_key = _saved["groq_api_key"]
+    st.session_state.cfg_groq_model = _saved["groq_model"]
+    st.session_state.settings_loaded = True
 if "cfg_web" not in st.session_state:
     st.session_state.cfg_web = True
 if "cfg_voice" not in st.session_state:
@@ -902,9 +894,30 @@ if "pending_speech" not in st.session_state:
 
 # Self-repair: never let the AI node URL or model go blank
 if not str(st.session_state.cfg_url or "").strip().lower().startswith("http"):
-    st.session_state.cfg_url = "http://localhost:11434/api/chat"
+    st.session_state.cfg_url = DEFAULT_SETTINGS["ollama_url"]
 if not str(st.session_state.cfg_model or "").strip():
-    st.session_state.cfg_model = "qwen2.5-coder:14b"
+    st.session_state.cfg_model = DEFAULT_SETTINGS["ollama_model"]
+if st.session_state.cfg_groq_model not in GROQ_MODELS:
+    st.session_state.cfg_groq_model = GROQ_MODELS[0]
+
+
+def current_settings() -> dict:
+    return {
+        "provider": st.session_state.cfg_provider,
+        "ollama_url": st.session_state.cfg_url,
+        "ollama_model": st.session_state.cfg_model,
+        "ollama_vision_model": DEFAULT_SETTINGS["ollama_vision_model"],
+        "groq_api_key": st.session_state.cfg_groq_key,
+        "groq_model": st.session_state.cfg_groq_model,
+        "groq_vision_model": DEFAULT_SETTINGS["groq_vision_model"],
+    }
+
+
+def _sync(src, dst):
+    """Copy a widget value into its setting and persist to disk."""
+    st.session_state[dst] = st.session_state[src]
+    save_settings(current_settings())
+
 
 ollama_url = st.session_state.cfg_url
 node_online, installed_models = check_ollama_node(ollama_url)
@@ -917,9 +930,12 @@ if node_online and installed_models and st.session_state.cfg_model not in instal
     st.session_state.cfg_model = picked
 local_model = st.session_state.cfg_model
 web_enabled = st.session_state.cfg_web and HAS_WEB
+SETTINGS = current_settings()
+brain_ok = brain_online(SETTINGS) if SETTINGS["provider"] == "cloud" else node_online
 
 # --- MAIN HUD HEADER: ARC REACTOR HERO ---
-node_chip = "<span class='jv-chip'>AI NODE ONLINE</span>" if node_online else "<span class='jv-chip off'>AI NODE OFFLINE</span>"
+node_chip = (f"<span class='jv-chip'>BRAIN ONLINE · {'CLOUD' if SETTINGS['provider'] == 'cloud' else 'LOCAL'}</span>"
+             if brain_ok else "<span class='jv-chip off'>BRAIN OFFLINE</span>")
 web_chip = "<span class='jv-chip'>WEB UPLINK</span>" if HAS_WEB else "<span class='jv-chip off'>WEB OFFLINE</span>"
 sensor_chip = "<span class='jv-chip'>SENSORS</span>" if HAS_PSUTIL else "<span class='jv-chip off'>SENSORS OFFLINE</span>"
 skills_count = len(load_skill_matrix())
@@ -947,7 +963,7 @@ st.markdown(f"""
 <div class="jv-header" style="justify-content:space-between;">
   <div class="jv-panel" style="min-width:220px;">
     &gt; CORE ......... <b>MARK XIII</b><br>
-    &gt; AI MODEL ..... <b>{local_model}</b><br>
+    &gt; BRAIN ........ <b>{brain_label(SETTINGS)}</b><br>
     &gt; SKILLS ....... <b>{skills_count} MASTERED</b><br>
     &gt; MEMORY ....... <b>PERSISTENT</b>
     <div class="jv-eq"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -1175,7 +1191,7 @@ if prompt:
     # --- HANDS-FREE PC COMMANDS: handled instantly, no AI round-trip ---
     cmd_reply = None
     try:
-        cmd_reply = parse_local_command(prompt, ollama_url)
+        cmd_reply = parse_local_command(prompt, SETTINGS)
     except Exception as e:
         cmd_reply = f"Command engine error: {e}"
     if cmd_reply:
@@ -1234,10 +1250,23 @@ with tab_sys:
     sys_c1, sys_c2 = st.columns(2)
     with sys_c1:
         with st.container(border=True):
-            st.markdown("### 🤖 AI UPLINK")
-            def _sync(src, dst):
-                st.session_state[dst] = st.session_state[src]
+            st.markdown("### 🧠 BRAIN")
+            st.caption("LOCAL runs the model on this PC (heavy on CPU/RAM). CLOUD uses Groq's free API — fast, and your PC stays cool. "
+                       "Everything else (voice, PC control, files, learning) stays on your PC either way.")
+            st.radio("Brain location", ["local", "cloud"],
+                     index=0 if st.session_state.cfg_provider == "local" else 1,
+                     key="w_cfg_provider", on_change=_sync, args=("w_cfg_provider", "cfg_provider"),
+                     format_func=lambda v: "🖥️ LOCAL (Ollama on this PC)" if v == "local" else "☁️ CLOUD (Groq free API)",
+                     horizontal=True)
+            st.text_input("Groq API key (free at console.groq.com)", value=st.session_state.cfg_groq_key,
+                          type="password", key="w_cfg_groq_key", on_change=_sync, args=("w_cfg_groq_key", "cfg_groq_key"))
+            st.selectbox("Cloud model", GROQ_MODELS, index=GROQ_MODELS.index(st.session_state.cfg_groq_model),
+                         key="w_cfg_groq_model", on_change=_sync, args=("w_cfg_groq_model", "cfg_groq_model"))
+            if st.session_state.cfg_provider == "cloud" and not st.session_state.cfg_groq_key.strip():
+                st.warning("Cloud selected but no API key yet — paste your Groq key above.")
 
+        with st.container(border=True):
+            st.markdown("### 🤖 LOCAL AI NODE (Ollama)")
             st.text_input("Local AI Node URL", value=st.session_state.cfg_url, key="w_cfg_url",
                           on_change=_sync, args=("w_cfg_url", "cfg_url"))
             if node_online and installed_models:
@@ -1427,16 +1456,9 @@ with tab_chat:
 
             with st.spinner("J.A.R.V.I.S. is processing telemetry and synthesizing a response..."):
                 try:
-                    payload = {"model": local_model, "messages": api_messages, "stream": True, "options": {"temperature": 0.1}}
-                    response = requests.post(ollama_url, json=payload, stream=True, timeout=300)
-                    response.raise_for_status()
-
-                    for line in response.iter_lines():
-                        if line:
-                            chunk = json.loads(line.decode("utf-8"))
-                            token = chunk.get("message", {}).get("content", "")
-                            full_response += token
-                            message_placeholder.markdown(full_response + "▌")
+                    for token in chat_stream(api_messages, SETTINGS, temperature=0.1):
+                        full_response += token
+                        message_placeholder.markdown(full_response + "▌")
                     message_placeholder.markdown(full_response)
 
                     web_pattern = r"\[WEB_SEARCH:\s*(.*?)\]"

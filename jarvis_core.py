@@ -58,6 +58,102 @@ PERSONA = (
     "unless asked for detail. Offer subtle, respectful pushback on risky ideas."
 )
 
+# ---------------------------------------------------------------- brain settings
+SETTINGS_FILE = Path("jarvis_settings.json")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_SETTINGS = {
+    "provider": "local",                       # "local" (Ollama on this PC) or "cloud" (Groq free API)
+    "ollama_url": DEFAULT_OLLAMA_URL,
+    "ollama_model": "qwen2.5-coder:14b",
+    "ollama_vision_model": "llava",
+    "groq_api_key": "",
+    "groq_model": "llama-3.3-70b-versatile",
+    "groq_vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
+}
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "qwen/qwen3-32b",
+]
+
+
+def load_settings() -> dict:
+    data = dict(DEFAULT_SETTINGS)
+    try:
+        if SETTINGS_FILE.exists():
+            data.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+    return data
+
+
+def save_settings(settings: dict):
+    try:
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def brain_label(settings: dict) -> str:
+    if settings.get("provider") == "cloud":
+        return f"CLOUD · {settings.get('groq_model', '')}"
+    return f"LOCAL · {settings.get('ollama_model', '')}"
+
+
+def chat_stream(messages, settings: dict, temperature: float = 0.1, timeout: int = 300):
+    """Yield reply tokens from whichever brain is configured."""
+    if settings.get("provider") == "cloud":
+        key = settings.get("groq_api_key", "").strip()
+        if not key:
+            raise requests.exceptions.RequestException("Cloud brain selected but no Groq API key is set (SYSTEMS tab).")
+        payload = {"model": settings.get("groq_model"), "messages": messages,
+                   "temperature": temperature, "stream": True}
+        r = requests.post(GROQ_URL, json=payload, stream=True, timeout=timeout,
+                          headers={"Authorization": f"Bearer {key}"})
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line:
+                continue
+            line = line.decode("utf-8") if isinstance(line, bytes) else line
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                delta = json.loads(data)["choices"][0]["delta"].get("content") or ""
+            except Exception:
+                delta = ""
+            if delta:
+                yield delta
+    else:
+        payload = {"model": settings.get("ollama_model"), "messages": messages,
+                   "stream": True, "options": {"temperature": temperature}}
+        r = requests.post(settings.get("ollama_url", DEFAULT_OLLAMA_URL), json=payload, stream=True, timeout=timeout)
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if line:
+                chunk = json.loads(line.decode("utf-8"))
+                token = chunk.get("message", {}).get("content", "")
+                if token:
+                    yield token
+
+
+def chat_once(messages, settings: dict, temperature: float = 0.1, timeout: int = 300) -> str:
+    return "".join(chat_stream(messages, settings, temperature, timeout))
+
+
+def brain_online(settings: dict) -> bool:
+    if settings.get("provider") == "cloud":
+        return bool(settings.get("groq_api_key", "").strip())
+    try:
+        base = settings.get("ollama_url", DEFAULT_OLLAMA_URL).split("/api/")[0]
+        return requests.get(f"{base}/api/tags", timeout=2).ok
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------- LLM helpers
 def ollama_chat(messages, chat_url=DEFAULT_OLLAMA_URL, model="qwen2.5-coder:14b",
                 temperature=0.3, timeout=180) -> str:
@@ -196,7 +292,8 @@ def run_macro(name: str, macro: dict) -> str:
 
 
 # ---------------------------------------------------------------- screen vision
-def describe_screen(chat_url: str = DEFAULT_OLLAMA_URL, vision_model: str = "llava") -> str:
+def describe_screen(settings: dict = None) -> str:
+    settings = settings or load_settings()
     if not HAS_SCREEN:
         return "Visual sensors offline, sir. Install them with: pip install mss pillow"
     try:
@@ -208,20 +305,30 @@ def describe_screen(chat_url: str = DEFAULT_OLLAMA_URL, vision_model: str = "lla
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        question = "Describe what is on this screen concisely, as J.A.R.V.I.S. reporting to sir."
+        if settings.get("provider") == "cloud":
+            payload = {
+                "model": settings.get("groq_vision_model"),
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                ]}],
+                "temperature": 0.2,
+            }
+            r = requests.post(GROQ_URL, json=payload, timeout=120,
+                              headers={"Authorization": f"Bearer {settings.get('groq_api_key', '')}"})
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip() or "I cannot interpret the display, sir."
         payload = {
-            "model": vision_model,
-            "messages": [{
-                "role": "user",
-                "content": "Describe what is on this screen concisely, as J.A.R.V.I.S. reporting to sir.",
-                "images": [b64],
-            }],
+            "model": settings.get("ollama_vision_model", "llava"),
+            "messages": [{"role": "user", "content": question, "images": [b64]}],
             "stream": False,
         }
-        r = requests.post(chat_url, json=payload, timeout=180)
+        r = requests.post(settings.get("ollama_url", DEFAULT_OLLAMA_URL), json=payload, timeout=180)
         r.raise_for_status()
         return r.json().get("message", {}).get("content", "").strip() or "I cannot interpret the display, sir."
     except Exception as e:
-        return f"Visual analysis failed, sir. Ensure a vision model is installed (ollama pull llava). {e}"
+        return f"Visual analysis failed, sir. (Local mode needs: ollama pull llava) {e}"
 
 
 SCREEN_PHRASES = ("look at my screen", "what am i doing", "what's on my screen",
@@ -233,13 +340,13 @@ def normalize_command(prompt: str) -> str:
     return p.strip().lower().rstrip(".!?")
 
 
-def parse_local_command(prompt: str, chat_url: str = DEFAULT_OLLAMA_URL):
+def parse_local_command(prompt: str, settings: dict = None):
     """Hands-free command engine. Returns a reply string for direct PC
     commands, or None to fall through to the AI."""
     p = normalize_command(prompt)
 
     if p in SCREEN_PHRASES:
-        return describe_screen(chat_url)
+        return describe_screen(settings)
 
     m = re.match(r"(?:open|launch|start)\s+(.+)$", p)
     if m:

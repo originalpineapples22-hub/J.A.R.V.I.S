@@ -16,14 +16,19 @@ if not exist ".jarvis_installed" (
     echo installed > .jarvis_installed
 )
 
-echo [3/5] Starting AI node (Ollama)...
-curl -s http://localhost:11434/api/tags >nul 2>&1
-if errorlevel 1 (
-    start "J.A.R.V.I.S. AI NODE" /min cmd /k ollama serve
-    echo       Waiting for Ollama to come online...
-    timeout /t 5 /nobreak >nul
+echo [3/5] Starting AI node...
+findstr /C:"\"provider\": \"cloud\"" jarvis_settings.json >nul 2>&1
+if not errorlevel 1 (
+    echo       Cloud brain configured - skipping Ollama to save CPU/RAM.
 ) else (
-    echo       Ollama already online.
+    curl -s http://localhost:11434/api/tags >nul 2>&1
+    if errorlevel 1 (
+        start "J.A.R.V.I.S. AI NODE" /min cmd /k ollama serve
+        echo       Waiting for Ollama to come online...
+        timeout /t 5 /nobreak >nul
+    ) else (
+        echo       Ollama already online.
+    )
 )
 
 echo [4/5] Starting voice bridge...
