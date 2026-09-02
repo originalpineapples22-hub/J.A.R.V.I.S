@@ -43,6 +43,7 @@ from jarvis_core import (
     tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
     load_settings, save_settings, chat_stream, chat_once, brain_online, brain_label,
     GROQ_MODELS, DEFAULT_SETTINGS, groq_models_live, pick_groq_model,
+    execute_pc_tags, PC_CONTROL_DIRECTIVE,
 )
 
 try:
@@ -771,7 +772,7 @@ def build_system_prompt() -> str:
         f"9. YOUR CURRENT SKILL MATRIX (topics you have already learned): {skills_summary}",
         "FABRICATION DIRECTIVES:",
         "10. When the user asks you to create, make, or write a file, script, or program for them, output the COMPLETE file wrapped EXACTLY as: [FILE: filename.ext] full file content [/FILE]. Python files are automatically executed in a sandbox; if errors are found you will be asked to fix them.",
-        "11. The backend directly executes PC commands (opening apps and websites, volume, brightness, media playback, macros) before messages reach you — never claim you cannot control the PC.",
+        "11. " + PC_CONTROL_DIRECTIVE,
     ])
 
 # --- STATE MANAGEMENT ---
@@ -1484,6 +1485,10 @@ with tab_chat:
                     for token in chat_stream(api_messages, SETTINGS, temperature=0.1):
                         full_response += token
                         message_placeholder.markdown(full_response + "▌")
+                    # Execute any [PC: ...] actions the AI requested
+                    full_response, _pc_done = execute_pc_tags(full_response, SETTINGS)
+                    if _pc_done:
+                        full_response = "🕹️ " + full_response
                     message_placeholder.markdown(full_response)
 
                     web_pattern = r"\[WEB_SEARCH:\s*(.*?)\]"

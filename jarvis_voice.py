@@ -26,7 +26,7 @@ from pathlib import Path
 
 from jarvis_core import (
     PERSONA, parse_local_command, chat_once, load_settings, brain_label,
-    tts_speak, clean_for_speech, HAS_TTS,
+    tts_speak, clean_for_speech, HAS_TTS, execute_pc_tags,
 )
 
 PORT = 8765
@@ -63,6 +63,7 @@ def handle_text(text: str) -> str:
         messages = [{"role": "system", "content": PERSONA}] + _history[-8:] + [{"role": "user", "content": text}]
         try:
             reply = chat_once(messages, settings, temperature=0.4) or "I have no answer, sir."
+            reply, _ = execute_pc_tags(reply, settings)
         except Exception as e:
             reply = f"I could not reach my cognitive core, sir. ({e})"
     _history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]

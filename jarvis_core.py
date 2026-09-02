@@ -52,10 +52,18 @@ except Exception:
 MACROS_FILE = Path("jarvis_macros.json")
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/chat"
 
+PC_CONTROL_DIRECTIVE = (
+    "PC CONTROL: You CAN control this computer. When the operator wants to open an app or website, "
+    "change volume or brightness, control music, run a macro, or have you look at the screen, output the tag "
+    "[PC: <plain command>] and the backend executes it instantly. Examples: [PC: open youtube], [PC: open spotify], "
+    "[PC: volume 30], [PC: volume up], [PC: brightness 70], [PC: pause music], [PC: next song], [PC: work mode], "
+    "[PC: look at my screen]. Put the tag first, then a brief confirmation. NEVER say you cannot launch or control the device."
+)
+
 PERSONA = (
     "You are J.A.R.V.I.S., a calm, articulate British AI with dry wit. "
     "You address the operator as 'sir'. Keep spoken replies concise (1-3 sentences) "
-    "unless asked for detail. Offer subtle, respectful pushback on risky ideas."
+    "unless asked for detail. Offer subtle, respectful pushback on risky ideas. " + PC_CONTROL_DIRECTIVE
 )
 
 # ---------------------------------------------------------------- brain settings
@@ -445,13 +453,58 @@ def describe_screen(settings: dict = None) -> str:
         return f"Visual analysis failed, sir. (Local mode needs: ollama pull llava) {e}"
 
 
+PC_TAG_RE = re.compile(r"\[PC:\s*([^\]]+?)\]", re.IGNORECASE)
+
+
+def execute_pc_tags(reply: str, settings: dict = None):
+    """Run any [PC: command] actions the AI emitted. Returns (clean_reply, executed_count)."""
+    results = []
+    def _run(m):
+        cmd = m.group(1).strip()
+        out = None
+        try:
+            out = parse_local_command(cmd, settings)
+        except Exception as e:
+            out = f"Command failed: {e}"
+        if out is None:
+            out = f"(Unknown PC command: {cmd})"
+        results.append(out)
+        return out
+    clean = PC_TAG_RE.sub(_run, reply)
+    return re.sub(r"[ \t]{2,}", " ", clean).strip(), len(results)
+
+
 SCREEN_PHRASES = ("look at my screen", "what am i doing", "what's on my screen",
                   "whats on my screen", "see my screen", "read my screen", "scan my screen")
 
 
+_FILLER_PREFIX = re.compile(
+    r"^(?:(?:hey|ok|okay|yo)\s+)?(?:jarvis[,!\s]+)?"
+    r"(?:(?:can|could|would|will)\s+you\s+|please\s+|kindly\s+|i\s+(?:want|need)\s+you\s+to\s+|"
+    r"go\s+ahead\s+and\s+|just\s+|quickly\s+)*", re.IGNORECASE)
+_FILLER_SUFFIX = re.compile(r"(?:\s+(?:please|for\s+me|now|right\s+now|thanks|thank\s+you|sir))+$", re.IGNORECASE)
+
+
 def normalize_command(prompt: str) -> str:
-    p = re.sub(r"^(hey\s+)?jarvis[,!\s]+", "", prompt.strip(), flags=re.IGNORECASE)
-    return p.strip().lower().rstrip(".!?")
+    p = prompt.strip().rstrip(".!?").strip()
+    p = _FILLER_PREFIX.sub("", p)
+    p = _FILLER_SUFFIX.sub("", p)
+    return p.strip().lower().rstrip(".!?").strip()
+
+
+def adjust_volume(delta: int) -> str:
+    if not HAS_VOL:
+        return "Volume control module not installed. Run: pip install pycaw comtypes"
+    try:
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        vol = cast(interface, POINTER(IAudioEndpointVolume))
+        cur = int(round(vol.GetMasterVolumeLevelScalar() * 100))
+        new = max(0, min(cur + delta, 100))
+        vol.SetMasterVolumeLevelScalar(new / 100.0, None)
+        return f"Volume {'up' if delta > 0 else 'down'} to {new} percent."
+    except Exception as e:
+        return f"Volume control failed: {e}"
 
 
 def parse_local_command(prompt: str, settings: dict = None):
@@ -462,13 +515,18 @@ def parse_local_command(prompt: str, settings: dict = None):
     if p in SCREEN_PHRASES:
         return describe_screen(settings)
 
-    m = re.match(r"(?:open|launch|start)\s+(.+)$", p)
+    m = re.match(r"(?:open|launch|start|run|go\s+to|pull\s+up|bring\s+up|fire\s+up)\s+(?:up\s+)?(?:the\s+|my\s+)?(.+)$", p)
     if m:
-        return launch_target(m.group(1))
-    m = re.match(r"(?:set\s+)?volume(?:\s+to)?\s+(\d{1,3})", p)
+        target = re.sub(r"\s+(?:app|application|website|site|browser)$", "", m.group(1)).strip()
+        return launch_target(target)
+    m = re.search(r"volume(?:\s+to)?\s+(\d{1,3})\s*(?:%|percent)?", p)
     if m:
         return set_system_volume(int(m.group(1)))
-    if p in ("mute", "mute volume", "silence"):
+    if re.search(r"(volume\s+up|turn\s+(?:it|the\s+volume)\s+up|louder|increase\s+(?:the\s+)?volume)", p):
+        return adjust_volume(+15)
+    if re.search(r"(volume\s+down|turn\s+(?:it|the\s+volume)\s+down|quieter|lower\s+(?:the\s+)?volume|decrease\s+(?:the\s+)?volume)", p):
+        return adjust_volume(-15)
+    if p in ("mute", "mute volume", "silence", "mute the volume", "mute the sound", "mute the pc"):
         return set_system_volume(0)
     m = re.match(r"(?:set\s+)?brightness(?:\s+to)?\s+(\d{1,3})", p)
     if m:
