@@ -77,6 +77,8 @@ DEFAULT_SETTINGS = {
     "groq_api_key": "",
     "groq_model": "llama-3.3-70b-versatile",
     "groq_vision_model": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "whisper_model": "base.en",                # tiny.en (fastest) / base.en / small.en (most accurate)
+    "pc_voice": False,                         # bridge also speaks through PC speakers (when HUD is closed)
 }
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
@@ -357,17 +359,53 @@ def launch_target(target: str) -> str:
         return f"Unable to launch '{t}': {e}"
 
 
-def set_system_volume(level: int) -> str:
-    if not HAS_VOL:
-        return "Volume control module not installed. Run: pip install pycaw comtypes"
+def _endpoint_volume():
+    """Works across pycaw versions (old: .Activate on the device; new: .EndpointVolume)."""
+    speakers = AudioUtilities.GetSpeakers()
+    if hasattr(speakers, "EndpointVolume"):
+        return speakers.EndpointVolume
+    dev = getattr(speakers, "_dev", speakers)
+    interface = dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return cast(interface, POINTER(IAudioEndpointVolume))
+
+
+def _volume_keys(action: str, times: int = 1) -> str:
+    if not HAS_KEYS:
+        return "Volume control unavailable. Run: pip install pycaw comtypes keyboard"
     try:
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        vol = cast(interface, POINTER(IAudioEndpointVolume))
-        vol.SetMasterVolumeLevelScalar(max(0, min(level, 100)) / 100.0, None)
-        return f"Volume set to {level} percent."
+        for _ in range(times):
+            kb.send(action)
+        return f"Volume {action.replace('volume ', '')}."
     except Exception as e:
         return f"Volume control failed: {e}"
+
+
+def set_system_volume(level: int) -> str:
+    level = max(0, min(int(level), 100))
+    if HAS_VOL:
+        try:
+            _endpoint_volume().SetMasterVolumeLevelScalar(level / 100.0, None)
+            return f"Volume set to {level} percent."
+        except Exception:
+            pass
+    # Fallback: drive it with media keys (each press = 2%)
+    if level == 0:
+        return _volume_keys("volume mute")
+    _volume_keys("volume down", 50)
+    return _volume_keys("volume up", max(1, level // 2)).replace("up.", f"set to roughly {level} percent.")
+
+
+def adjust_volume(delta: int) -> str:
+    if HAS_VOL:
+        try:
+            ep = _endpoint_volume()
+            cur = int(round(ep.GetMasterVolumeLevelScalar() * 100))
+            new = max(0, min(cur + delta, 100))
+            ep.SetMasterVolumeLevelScalar(new / 100.0, None)
+            return f"Volume {'up' if delta > 0 else 'down'} to {new} percent."
+        except Exception:
+            pass
+    return _volume_keys("volume up" if delta > 0 else "volume down", max(1, abs(delta) // 2))
 
 
 def set_brightness(level: int) -> str:
@@ -543,3 +581,69 @@ def parse_local_command(prompt: str, settings: dict = None):
         if p in (n, f"run {n}", f"activate {n}", f"{n} protocol"):
             return run_macro(name, macro)
     return None
+
+# ---------------------------------------------------------------- wake word
+import difflib as _difflib
+
+def extract_wake_command(text: str):
+    """Fuzzy wake-word detection. 'Jarvis', 'Javis', 'Jervis', 'Jarvez'... all
+    count. Returns (found, command_after_wake_word)."""
+    words = re.findall(r"[A-Za-z']+", text or "")
+    for i, w in enumerate(words):
+        lw = w.lower()
+        if lw.startswith(("jarv", "jerv", "javi", "jarb", "jav")) or \
+           _difflib.SequenceMatcher(None, lw, "jarvis").ratio() >= 0.75:
+            rest = " ".join(words[i + 1:]).strip()
+            return True, rest
+    return False, ""
+
+
+# ---------------------------------------------------------------- episodic memory
+MEMORY_FILE = Path("jarvis_memory.json")
+_STOP = set("the a an and or to of in on for with is are was were be been it this that i you me my your we he she they what how why when where who do does did can could would should will just please sir jarvis about have has had not no yes ok okay".split())
+
+
+def _keywords(text: str):
+    return {w for w in re.findall(r"[a-z0-9\+\#]{3,}", (text or "").lower()) if w not in _STOP}
+
+
+def remember_exchange(user: str, reply: str, source: str = "hud"):
+    """Persist a conversation turn so J.A.R.V.I.S. remembers across restarts."""
+    try:
+        entries = json.loads(MEMORY_FILE.read_text(encoding="utf-8")) if MEMORY_FILE.exists() else []
+    except Exception:
+        entries = []
+    from datetime import datetime as _dt
+    entries.append({"ts": _dt.now().strftime("%Y-%m-%d %H:%M"), "source": source,
+                    "user": (user or "")[:600], "reply": (reply or "")[:900]})
+    try:
+        MEMORY_FILE.write_text(json.dumps(entries[-600:], indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def recall_memory(query: str, k: int = 4, max_chars: int = 2200) -> str:
+    """Return the most relevant past exchanges for a query (keyword overlap)."""
+    qk = _keywords(query)
+    if len(qk) < 2 or not MEMORY_FILE.exists():
+        return ""
+    try:
+        entries = json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    scored = []
+    for e in entries[:-1]:  # exclude the turn being asked right now
+        score = len(qk & _keywords(e.get("user", "") + " " + e.get("reply", "")))
+        if score >= 2:
+            scored.append((score, e))
+    if not scored:
+        return ""
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out, used = [], 0
+    for _, e in scored[:k]:
+        line = f"[{e['ts']}] Operator: {e['user']}\nJ.A.R.V.I.S.: {e['reply']}"
+        if used + len(line) > max_chars:
+            break
+        out.append(line)
+        used += len(line)
+    return "\n---\n".join(out)

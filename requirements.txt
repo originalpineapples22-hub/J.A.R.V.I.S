@@ -6,13 +6,14 @@ pypdf
 pandas
 openpyxl
 pyttsx3
-streamlit-mic-recorder
 keyboard
 screen-brightness-control
 pycaw
 comtypes
-# --- Always-on voice daemon (jarvis_voice.py) + screen vision ---
+# --- Always-on ear (jarvis_voice.py): offline Whisper + mic, screen vision ---
 SpeechRecognition
 pyaudio
+faster-whisper
+numpy
 mss
 pillow

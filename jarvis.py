@@ -43,14 +43,18 @@ from jarvis_core import (
     tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
     load_settings, save_settings, chat_stream, chat_once, brain_online, brain_label,
     GROQ_MODELS, DEFAULT_SETTINGS, groq_models_live, pick_groq_model,
-    execute_pc_tags, PC_CONTROL_DIRECTIVE,
+    execute_pc_tags, PC_CONTROL_DIRECTIVE, remember_exchange, recall_memory,
 )
 
-try:
-    from streamlit_mic_recorder import speech_to_text
-    HAS_MIC = True
-except Exception:
-    HAS_MIC = False
+BRIDGE_URL = "http://localhost:8765"
+
+
+def bridge_get(path: str, timeout: float = 1.5):
+    try:
+        r = requests.get(BRIDGE_URL + path, timeout=timeout)
+        return r.json() if r.ok else None
+    except Exception:
+        return None
 
 # --- SYSTEM DIRECTORIES & AUDIT SETUP ---
 BACKUP_DIR = Path("jarvis_backups")
@@ -881,6 +885,8 @@ if "settings_loaded" not in st.session_state:
     st.session_state.cfg_model = _saved["ollama_model"]
     st.session_state.cfg_groq_key = _saved["groq_api_key"]
     st.session_state.cfg_groq_model = _saved["groq_model"]
+    st.session_state.cfg_whisper = _saved.get("whisper_model", "base.en")
+    st.session_state.cfg_voice = bool(_saved.get("pc_voice", False))
     st.session_state.settings_loaded = True
 if "cfg_web" not in st.session_state:
     st.session_state.cfg_web = True
@@ -890,6 +896,8 @@ if "cfg_browser_voice" not in st.session_state:
     st.session_state.cfg_browser_voice = True
 if "cfg_call_mode" not in st.session_state:
     st.session_state.cfg_call_mode = True
+if "last_event_id" not in st.session_state:
+    st.session_state.last_event_id = 0
 if "pending_speech" not in st.session_state:
     st.session_state.pending_speech = None
 
@@ -913,6 +921,8 @@ def current_settings() -> dict:
         "groq_api_key": st.session_state.cfg_groq_key,
         "groq_model": st.session_state.cfg_groq_model,
         "groq_vision_model": DEFAULT_SETTINGS["groq_vision_model"],
+        "whisper_model": st.session_state.get("cfg_whisper", "base.en"),
+        "pc_voice": bool(st.session_state.get("cfg_voice", False)),
     }
 
 
@@ -1021,6 +1031,26 @@ def render_dynamic_dashboard():
             else:
                 st.success(f"🟢 RAM NOMINAL: {ram_val}%")
 
+    # --- 🎙️ EAR: pull what the always-on Whisper ear heard, speak + show it ---
+    if st.session_state.cfg_call_mode:
+        ear = bridge_get("/ear")
+        if ear is None:
+            ear_html = "<span class='jv-chip off'>EAR OFFLINE — run START_JARVIS.bat (bridge)</span>"
+        else:
+            ok = ear.get("listening")
+            heard = (ear.get("last_heard") or "")[:70]
+            ear_html = (f"<span class='jv-chip{'' if ok else ' off'}'>🎙️ {ear.get('status', '').upper()} · {ear.get('engine', '')}</span>"
+                        + (f" <span class='jv-sub'>last heard: “{heard}”</span>" if heard else ""))
+        st.markdown(f"<div style='padding:4px 6px 0 6px;'>{ear_html}</div>", unsafe_allow_html=True)
+        ev = bridge_get(f"/events?since={st.session_state.last_event_id}")
+        if ev and ev.get("events"):
+            for e in ev["events"]:
+                st.session_state.messages.append({"role": "user", "content": f"🎙️ {e['heard']}"})
+                st.session_state.messages.append({"role": "assistant", "content": e["reply"]})
+                st.session_state.pending_speech = clean_for_speech(e["reply"])
+            st.session_state.last_event_id = ev.get("latest", st.session_state.last_event_id)
+            st.rerun(scope="app")
+
     # --- SPOKEN ALERTS (5 min cooldown per alert) ---
     alert_now = time.time()
     if HAS_PSUTIL and cpu_val > 90 and alert_now - st.session_state.get("last_cpu_alert", 0) > 300:
@@ -1066,10 +1096,9 @@ def bg_parse_file(file_name, file_bytes):
     except Exception:
         pass
 
-col_file, col_cam = st.columns(2)
-with col_file:
-    with st.container(border=True):
-        st.markdown("### 📂 Async Data Ingestion")
+with st.expander("📂 DATA INGESTION & COGNITIVE BUFFER", expanded=False):
+    col_file, col_cam = st.columns(2)
+    with col_file:
         uploaded_file = st.file_uploader("Upload Data Matrix", type=["txt", "py", "md", "json", "exe", "pdf", "xlsx", "xls"], key="mk10_file")
         if uploaded_file:
             file_id = f"{uploaded_file.name}_{uploaded_file.size}"
@@ -1079,7 +1108,6 @@ with col_file:
                 st.session_state.current_memory_buffer = f"Ingesting {uploaded_file.name} in background..."
                 worker = threading.Thread(target=bg_parse_file, args=(uploaded_file.name, uploaded_file.read()), daemon=True)
                 try:
-                    # Attach Streamlit's script-run context so the thread can write to session_state
                     from streamlit.runtime.scriptrunner import add_script_run_ctx
                     add_script_run_ctx(worker)
                 except Exception:
@@ -1092,105 +1120,13 @@ with col_file:
                 st.session_state.parsed_file_context = ""
                 st.session_state.last_file_id = None
                 st.session_state.current_memory_buffer = "No external files or web data loaded."
-
-with col_cam:
-    with st.container(border=True):
-        st.markdown("### 🧠 LIVE COGNITIVE BUFFER")
+    with col_cam:
         st.markdown(f"<div class='cognitive-buffer'>STATUS: {st.session_state.current_memory_buffer}</div>", unsafe_allow_html=True)
-        st.caption("This monitor enforces truth. If data is not listed here, J.A.R.V.I.S. is blind to it.")
 
-st.divider()
-
-# --- QUICK ACTIONS ---
-qa1, qa2, qa3, qa4 = st.columns(4)
-quick_prompt = None
-with qa1:
-    if st.button("📡 SYSTEM REPORT", key="qa_report"):
-        quick_prompt = "Give me a full system status report: your current capabilities, learned skills, and readiness."
-with qa2:
-    if st.button("🧠 KNOWLEDGE RECAP", key="qa_recap"):
-        quick_prompt = "Summarize everything you have learned so far and what you can help me with."
-with qa3:
-    if st.button("💡 SUGGEST STUDY", key="qa_suggest"):
-        quick_prompt = "Based on your current skill matrix, suggest the next 3 technologies you should study and why. Do not start studying yet."
-with qa4:
-    if st.button("🔧 CODE ASSIST", key="qa_code"):
-        quick_prompt = "I need coding help. Ask me what I'm building and which language, then use your learned knowledge to assist."
-
-# --- 📞 VOICE CHANNEL: always-on browser mic, wake word "Jarvis", spoken replies ---
 flush_browser_speech()
-if st.session_state.cfg_call_mode:
-    with st.container(border=True):
-        st.markdown("### 📞 VOICE CHANNEL")
-        components.html("""
-<style>
-  body { margin:0; background:#010409; color:#7fd4de; font-family: 'Courier New', monospace; font-size: 13px; }
-  #status { color:#00ff66; margin-bottom:6px; }
-  #log div { border-left: 2px solid #00f0ff; padding: 3px 8px; margin: 3px 0; background: rgba(0,240,255,0.04); }
-  #log b { color:#00f0ff; }
-</style>
-<div id="status">Initialising voice channel...</div>
-<div id="log"></div>
-<script>
-(function(){
-  const BRIDGE = "http://localhost:8765/ask";
-  const log = document.getElementById('log');
-  const status = document.getElementById('status');
-  function add(who, text){ const d=document.createElement('div'); d.innerHTML='<b>'+who+'</b> '+text; log.prepend(d); while(log.children.length>8) log.removeChild(log.lastChild); }
-  function speak(t){
-    try{
-      const u=new SpeechSynthesisUtterance(t); u.rate=1.02; u.pitch=0.95;
-      const vs=speechSynthesis.getVoices();
-      const pick=vs.find(v=>/en-GB/i.test(v.lang)&&/daniel|george|ryan|male/i.test(v.name))||vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang));
-      if(pick) u.voice=pick; speechSynthesis.cancel(); speechSynthesis.speak(u);
-    }catch(e){}
-  }
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ status.textContent='Speech recognition unsupported here — use Chrome or Edge.'; return; }
-  const rec = new SR(); rec.continuous=true; rec.interimResults=false; rec.lang='en-US';
-  let busy=false;
-  rec.onresult = async (e)=>{
-    const heard = e.results[e.results.length-1][0].transcript.trim();
-    const low = heard.toLowerCase();
-    const idx = low.indexOf('jarvis');
-    if(idx<0) return;                      // not addressed to J.A.R.V.I.S. — ignore
-    const cmd = heard.slice(idx+6).replace(/^[\s,.!?]+/,'').trim();
-    add('YOU', heard);
-    if(!cmd){ add('J.A.R.V.I.S.','Yes, sir?'); speak('Yes, sir?'); return; }
-    if(busy) return; busy=true; status.textContent='Processing...';
-    try{
-      const r = await fetch(BRIDGE,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:cmd})});
-      const j = await r.json(); const reply = j.reply || 'No response, sir.';
-      add('J.A.R.V.I.S.', reply); speak(reply);
-    }catch(err){
-      const m='Voice bridge offline, sir. In a terminal run: python jarvis_voice.py';
-      add('SYSTEM', m); speak(m);
-    }
-    busy=false; status.textContent='Listening — say "Jarvis, ..."';
-  };
-  rec.onend = ()=>{ setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };
-  rec.onerror = (e)=>{ if(e.error==='not-allowed'){ status.textContent='Microphone blocked. Click the lock/camera icon in the address bar and allow the microphone, then reload.'; } };
-  try{ rec.start(); status.textContent='Listening — say "Jarvis, ..."'; }catch(e){ status.textContent='Could not start microphone: '+e; }
-})();
-</script>
-""", height=190)
 
-# --- INPUT HANDLING (typed or spoken) ---
-if HAS_MIC:
-    mic_col, hint_col = st.columns([1, 5])
-    with mic_col:
-        voice_text = speech_to_text(start_prompt="🎤 SPEAK", stop_prompt="⏹ STOP",
-                                    language="en", just_once=True, key="mk14_stt")
-    with hint_col:
-        st.caption("Voice uplink: click SPEAK, give your order, click STOP. Works best in Chrome/Edge.")
-else:
-    voice_text = None
-
-prompt = st.chat_input("Command J.A.R.V.I.S...", key="mk10_chat")
-if not prompt and voice_text:
-    prompt = voice_text
-if quick_prompt and not prompt:
-    prompt = quick_prompt
+# --- INPUT HANDLING ---
+prompt = st.chat_input("Command J.A.R.V.I.S...  (or just say “Jarvis, …” out loud)", key="mk10_chat")
 
 if prompt:
     # --- HANDS-FREE PC COMMANDS: handled instantly, no AI round-trip ---
@@ -1202,6 +1138,7 @@ if prompt:
     if cmd_reply:
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.messages.append({"role": "assistant", "content": f"🕹️ {cmd_reply}"})
+        remember_exchange(prompt, cmd_reply, "hud")
         speak(cmd_reply)
         prompt = None
 
@@ -1221,6 +1158,9 @@ if prompt:
         api_prompt += st.session_state.parsed_file_context
         display_prompt += "\n\n*[Cached File Data attached]*"
     # --- LONG-TERM MEMORY RECALL: inject relevant learned knowledge ---
+    past = recall_memory(prompt)
+    if past:
+        api_prompt += f"\n\n[RELEVANT PAST CONVERSATIONS — your own memory]\n{past}"
     recalled = recall_knowledge(prompt)
     if recalled:
         api_prompt += f"\n\n[RECALLED KNOWLEDGE]\nThe following are your own notes from long-term memory, relevant to this request:\n{recalled}"
@@ -1308,14 +1248,20 @@ with tab_sys:
                         on_change=_sync, args=("w_cfg_web", "cfg_web"), disabled=not HAS_WEB)
             st.checkbox("Browser Voice (J.A.R.V.I.S. speaks through this page)", value=st.session_state.cfg_browser_voice,
                         key="w_cfg_browser_voice", on_change=_sync, args=("w_cfg_browser_voice", "cfg_browser_voice"))
-            st.checkbox("📞 Always-on Voice Channel (say 'Jarvis, ...')", value=st.session_state.cfg_call_mode,
+            st.checkbox("🎙️ Always-on Ear (Whisper, wake word 'Jarvis')", value=st.session_state.cfg_call_mode,
                         key="w_cfg_call_mode", on_change=_sync, args=("w_cfg_call_mode", "cfg_call_mode"))
-            st.checkbox("PC Speaker Voice fallback (pyttsx3)", value=st.session_state.cfg_voice,
+            _wm = ["tiny.en", "base.en", "small.en"]
+            st.selectbox("Whisper model (restart bridge to apply)", _wm,
+                         index=_wm.index(st.session_state.cfg_whisper) if st.session_state.cfg_whisper in _wm else 1,
+                         key="w_cfg_whisper", on_change=_sync, args=("w_cfg_whisper", "cfg_whisper"),
+                         help="tiny = fastest, small = most accurate. base is the sweet spot.")
+            st.checkbox("Also speak through PC speakers (works with HUD closed)", value=st.session_state.cfg_voice,
                         key="w_cfg_voice", on_change=_sync, args=("w_cfg_voice", "cfg_voice"), disabled=not HAS_TTS)
-            if not HAS_TTS:
-                st.caption("Optional PC voice fallback: `pip install pyttsx3`")
-            if not HAS_MIC:
-                st.caption("Install voice input: `pip install streamlit-mic-recorder`")
+            _ear = bridge_get("/ear")
+            if _ear:
+                st.caption(f"Ear: {_ear.get('status')} · engine: {_ear.get('engine')}")
+            else:
+                st.caption("Ear offline — the bridge (jarvis_voice.py) is not running.")
 
         with st.container(border=True):
             st.markdown("### 🧠 SKILL MATRIX")
@@ -1579,6 +1525,11 @@ with tab_chat:
                         except Exception:
                             pass
                         st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        try:
+                            _last_user = next(m for m in reversed(st.session_state.messages) if m["role"] == "user")["content"]
+                            remember_exchange(_last_user, full_response, "hud")
+                        except Exception:
+                            pass
                         speak(full_response)
                         st.rerun()
 

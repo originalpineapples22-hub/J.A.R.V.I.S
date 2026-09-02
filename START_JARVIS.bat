@@ -10,10 +10,11 @@ echo.
 echo [1/5] Pulling latest build...
 git pull
 
-echo [2/5] Checking Python packages (first run only)...
-if not exist ".jarvis_installed" (
+echo [2/5] Checking Python packages (installs only when requirements change)...
+fc /b requirements.txt .jarvis_installed >nul 2>&1
+if errorlevel 1 (
     pip install -r requirements.txt
-    echo installed > .jarvis_installed
+    copy /y requirements.txt .jarvis_installed >nul
 )
 
 echo [3/5] Starting AI node...
@@ -31,7 +32,7 @@ if not errorlevel 1 (
     )
 )
 
-echo [4/5] Starting voice bridge...
+echo [4/5] Starting ear + bridge (Whisper loads on first run, ~1 min)...
 start "J.A.R.V.I.S. VOICE BRIDGE" /min cmd /k python jarvis_voice.py
 
 echo [5/5] Launching HUD...
