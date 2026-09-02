@@ -7,6 +7,19 @@ echo    J.A.R.V.I.S.  -  STARTING ALL SERVICES
 echo  ============================================
 echo.
 
+if not exist ".git" (
+    echo.
+    echo  ERROR: This launcher is not inside the cloned J.A.R.V.I.S repository.
+    echo  Folder: %CD%
+    echo.
+    echo  Run the START_JARVIS.bat that lives INSIDE the folder you cloned from GitHub,
+    echo  or clone it fresh in cmd:
+    echo    git clone -b claude/jarvis-self-learning-pfsxu0 https://github.com/originalpineapples22-hub/J.A.R.V.I.S.git
+    echo.
+    pause
+    exit /b 1
+)
+
 echo [1/5] Pulling latest build...
 git pull
 
