@@ -1,70 +1,48 @@
-# J.A.R.V.I.S. Core — Mark XI (Self-Learning)
+# J.A.R.V.I.S. v3 — cloud command center
 
-A local, Iron-Man-style AI assistant HUD built with Streamlit, powered by a local
-Ollama model (default: `qwen2.5-coder:14b`). It can search the web, modify its own
-source code with a self-healing loop, and — new in Mark XI — **teach itself
-programming languages and technologies and remember them permanently**.
+Always-on personal AI that runs on a free cloud server and works on iPhone, iPad,
+Apple Watch (via Siri Shortcut + mirrored notifications), tablets and PC — one screen.
 
-## Setup
-
-```bash
-pip install -r requirements.txt
-ollama pull qwen2.5-coder:14b   # or any model you prefer
-python -m streamlit run jarvis.py
+```
+jarvis/        the core: brain (Groq/OpenAI/Ollama), memory (SQLite+FTS), agent loop,
+               tool plugins, parallel learning, push notifications, scheduler, FastAPI server
+web/           the single-screen PWA (install to Home Screen on iPhone/iPad)
+pc_agent/      tiny program for your PC: lets the cloud JARVIS control the PC and
+               adds the offline Whisper always-on ear
+deploy/        one-shot Oracle Cloud (Always Free) installer with HTTPS
+legacy/        the previous local-only build (kept for reference)
 ```
 
-Make sure Ollama is running (`ollama serve`, default URL `http://localhost:11434`).
+## Deploy (free, ~15 minutes)
+1. Create an Oracle Cloud Always-Free account and an Ubuntu VM (Ampere A1 or Micro).
+   In the VM's VCN security list, open TCP ports 80 and 443.
+2. Get a free DuckDNS subdomain at duckdns.org (gives you HTTPS, required by iPhone for
+   Home-Screen apps and notifications).
+3. SSH into the VM and run:
+   `curl -fsSL https://raw.githubusercontent.com/originalpineapples22-hub/J.A.R.V.I.S/claude/jarvis-self-learning-pfsxu0/deploy/oracle_setup.sh | bash`
+   It asks for your Groq key and DuckDNS details, prints your **access token**, and
+   brings JARVIS up at `https://<name>.duckdns.org`.
+4. On each device: open the URL → Settings (⚙) → paste the token → Save.
+   iPhone/iPad: Share → **Add to Home Screen**, then ⚙ → *Enable notifications*.
+5. Apple Watch: Shortcuts app → new shortcut: **Dictate Text** → **Get Contents of URL**
+   `https://<name>.duckdns.org/api/ask?token=<TOKEN>&q=<Dictated Text>` → **Speak Text**.
+   Name it "Jarvis". Raise wrist: "Hey Siri, Jarvis".
 
-## Self-Learning: how it works
+## Run locally (for development)
+```
+pip install -r requirements.txt
+cp .env.example .env   # add your Groq key
+uvicorn jarvis.server:app --port 8080 --env-file .env
+```
 
-JARVIS has a persistent **knowledge base** stored in `jarvis_knowledge/` (one JSON
-file per topic) plus a **skill matrix** (`_skill_matrix.json`) tracking proficiency
-levels: UNTRAINED → NOVICE → APPRENTICE → ADEPT → EXPERT → MASTER, based on how
-many lessons it has learned. Everything survives restarts.
+## PC agent (optional)
+`pip install websockets` then `python pc_agent/agent.py` — first run creates
+`pc_agent/config.json`; fill in your server URL (`wss://<name>.duckdns.org/ws/pc`) and token.
+Add `pip install SpeechRecognition pyaudio faster-whisper numpy pyttsx3` for the always-on ear.
 
-### Ways to make it learn
-
-1. **Chat command** — tell JARVIS `study Rust` (or "learn Docker", "master Go").
-   The model outputs a `[STUDY: Rust]` tag and the backend runs an autonomous
-   curriculum loop:
-   - For each of 5 curriculum modules (syntax → control flow → data structures →
-     idioms → ecosystem), it web-searches the module, feeds the research back to
-     the model, and the model writes a detailed lesson in a
-     `[LEARN: topic | lesson]...[/LEARN]` block.
-   - Each lesson is saved to disk and the skill matrix is updated.
-   - A progress bar in the sidebar tracks the session.
-
-2. **Sidebar "Direct Study Order"** — type a topic and hit
-   **INITIATE STUDY PROTOCOL** to skip the chat round-trip.
-
-3. **Spontaneous learning** — the model can emit `[LEARN: ...]` blocks any time it
-   synthesizes something worth remembering.
-
-### Recall
-
-When you send a prompt, JARVIS keyword-matches it against learned topics and
-injects the relevant notes into the model's context as `[RECALLED KNOWLEDGE]`.
-The system prompt also always lists the current skill matrix, so JARVIS knows
-what it knows.
-
-You can browse or delete learned topics from the sidebar (**Browse Knowledge
-Base** / **Forget**).
-
-## Other systems (from Mark X)
-
-- **Self-healing code modification** — `[MODIFY: feature]` blocks are injected at
-  the `# --- DASHBOARD_ANCHOR ---` in `jarvis.py`, syntax-checked before deploy,
-  snapshotted to `jarvis_backups/`, and compile errors are fed back to the model
-  to fix itself. Rollback from the sidebar.
-- **Web access** — DuckDuckGo with Wikipedia fallback, autonomous via
-  `[WEB_SEARCH: query]` or manual from the sidebar.
-- **File ingestion** — upload txt/py/md/json/pdf/xlsx/exe files into context.
-- **Live telemetry** — CPU/RAM/disk HUD refreshing every 2 seconds.
-
-## Files created at runtime
-
-| Path | Purpose |
-|---|---|
-| `jarvis_knowledge/` | Learned lessons (one JSON per topic) + skill matrix |
-| `jarvis_backups/` | Snapshots taken before every self-modification |
-| `jarvis_audit.json` | Audit log of self-modification attempts |
+## Talking to it
+- Type or tap the mic. On a PC browser, tick **Always listen** for the wake word "Jarvis".
+- "learn Rust" / "study docker" → 10-module mastery curriculum in ~2 minutes, permanent.
+- "remind me in 20 minutes to …" → notification on all your devices.
+- Share a YouTube link to the app → "what is this video about?"
+- "make me a python script that …" → file appears in Files, sandbox-tested.

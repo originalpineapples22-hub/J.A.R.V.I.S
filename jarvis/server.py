@@ -1,0 +1,229 @@
+# -*- coding: utf-8 -*-
+"""FastAPI server: the single-screen PWA, streaming chat (WebSocket), REST for panels,
+push notifications, PC-agent relay, Siri-friendly plain-text endpoint."""
+import json
+import asyncio
+from pathlib import Path
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request, Query
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from . import __version__, memory, agent, brain, learning
+from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
+from .push import vapid_keys, notify_all
+from .scheduler import loop as scheduler_loop
+from .tools import agents_status
+from .tools.system import system_metrics, local_now
+from .tools.files import list_files
+from .tools import pc as pc_tools
+
+WEB = ROOT / "web"
+app = FastAPI(title="J.A.R.V.I.S.", version=__version__)
+
+
+def auth(request: Request, token: str = Query(default=None)):
+    tok = request.headers.get("X-JARVIS-TOKEN") or token
+    if tok != operator_token():
+        raise HTTPException(401, "Access denied, sir.")
+    return True
+
+
+@app.on_event("startup")
+async def _startup():
+    memory.db()
+    asyncio.get_event_loop().create_task(scheduler_loop())
+    memory.add_event("system", f"J.A.R.V.I.S. core v{__version__} online")
+
+
+# ---------------- PWA
+@app.get("/")
+async def index():
+    return FileResponse(WEB / "index.html")
+
+
+@app.get("/sw.js")
+async def sw():
+    return FileResponse(WEB / "sw.js", media_type="application/javascript")
+
+
+@app.get("/manifest.json")
+async def manifest():
+    return FileResponse(WEB / "manifest.json", media_type="application/manifest+json")
+
+
+# ---------------- status for panels
+@app.get("/api/health")
+async def health():
+    return {"status": "online", "version": __version__, "time": local_now().isoformat()}
+
+
+@app.get("/api/status", dependencies=[Depends(auth)])
+async def status():
+    s = load_settings()
+    prov = await brain.provider_status(s)
+    return {
+        "version": __version__,
+        "time": local_now().strftime("%H:%M:%S"),
+        "date": local_now().strftime("%A, %d %B %Y"),
+        "system": system_metrics(),
+        "memory": memory.stats(),
+        "skills": memory.skills()[:12],
+        "agents": agents_status(),
+        "events": memory.events(8),
+        "tasks": memory.tasks()[:8],
+        "reminders": memory.upcoming_reminders(6),
+        "providers": prov,
+        "learning": learning.status(),
+        "pc_online": pc_tools.pc_connected(),
+        "files": list_files()[:8],
+        "push_subs": len(memory.push_subs()),
+    }
+
+
+@app.get("/api/history", dependencies=[Depends(auth)])
+async def history(channel: str = "web", n: int = 30):
+    return memory.recent_messages(channel, n)
+
+
+# ---------------- chat
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket):
+    await ws.accept()
+    if ws.query_params.get("token") != operator_token():
+        await ws.send_text(json.dumps({"type": "error", "text": "Access denied, sir."}))
+        await ws.close()
+        return
+    try:
+        while True:
+            data = json.loads(await ws.receive_text())
+            text = str(data.get("text", "")).strip()
+            if not text:
+                continue
+            async for ev in agent.run(text, channel=data.get("channel", "web")):
+                await ws.send_text(json.dumps(ev))
+    except WebSocketDisconnect:
+        pass
+
+
+@app.post("/api/chat", dependencies=[Depends(auth)])
+async def chat(req: Request):
+    data = await req.json()
+    final = ""
+    async for ev in agent.run(str(data.get("text", "")), channel=data.get("channel", "api")):
+        if ev["type"] == "final":
+            final = ev["text"]
+        elif ev["type"] == "error":
+            final = ev["text"]
+    return {"reply": final}
+
+
+@app.get("/api/ask", response_class=PlainTextResponse, dependencies=[Depends(auth)])
+async def ask(q: str = ""):
+    """Plain-text reply for Siri Shortcuts / Apple Watch."""
+    final = "Yes, sir?"
+    if q.strip():
+        async for ev in agent.run(q, channel="siri"):
+            if ev["type"] in ("final", "error"):
+                final = ev["text"]
+    return final
+
+
+# ---------------- tasks / files / settings / learning
+@app.post("/api/tasks", dependencies=[Depends(auth)])
+async def add_task(req: Request):
+    d = await req.json()
+    memory.add_task(d.get("title", ""), d.get("due"))
+    return {"ok": True}
+
+
+@app.post("/api/tasks/{tid}/done", dependencies=[Depends(auth)])
+async def done_task(tid: int):
+    memory.complete_task(tid)
+    return {"ok": True}
+
+
+@app.get("/api/files/{name}", dependencies=[Depends(auth)])
+async def get_file(name: str):
+    p = FILES_DIR / Path(name).name
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, filename=p.name)
+
+
+@app.get("/api/settings", dependencies=[Depends(auth)])
+async def get_settings():
+    s = load_settings()
+    masked = dict(s)
+    for k in ("groq_api_key", "openai_api_key"):
+        if masked.get(k):
+            masked[k] = masked[k][:6] + "…"
+    masked["groq_models"] = await brain.groq_models(s.get("groq_api_key"))
+    return masked
+
+
+@app.post("/api/settings", dependencies=[Depends(auth)])
+async def post_settings(req: Request):
+    d = await req.json()
+    d = {k: v for k, v in d.items() if k in DEFAULTS and not (isinstance(v, str) and v.endswith("…"))}
+    save_settings(d)
+    return {"ok": True}
+
+
+@app.post("/api/learn", dependencies=[Depends(auth)])
+async def learn(req: Request):
+    d = await req.json()
+    return {"started": learning.start_study(d.get("topic", "").strip())}
+
+
+@app.get("/api/knowledge", dependencies=[Depends(auth)])
+async def knowledge(topic: str = None):
+    return memory.lessons(topic)
+
+
+# ---------------- push
+@app.get("/api/push/vapid", dependencies=[Depends(auth)])
+async def push_vapid():
+    return {"public": vapid_keys().get("public", "")}
+
+
+@app.post("/api/push/subscribe", dependencies=[Depends(auth)])
+async def push_subscribe(req: Request):
+    memory.add_push_sub(await req.json())
+    return {"ok": True}
+
+
+@app.post("/api/push/test", dependencies=[Depends(auth)])
+async def push_test():
+    n = await notify_all("J.A.R.V.I.S.", "Push channel confirmed, sir. I can reach this device.")
+    return {"sent": n}
+
+
+# ---------------- PC agent relay
+@app.websocket("/ws/pc")
+async def ws_pc(ws: WebSocket):
+    await ws.accept()
+    if ws.query_params.get("token") != operator_token():
+        await ws.close()
+        return
+    pc_tools.set_pc_socket(ws)
+    memory.add_event("system", "PC agent connected")
+    try:
+        while True:
+            msg = json.loads(await ws.receive_text())
+            if msg.get("type") == "heard":
+                # the PC's Whisper ear heard a command: run it through the agent and answer
+                final = ""
+                async for ev in agent.run(msg.get("text", ""), channel="pc"):
+                    if ev["type"] in ("final", "error"):
+                        final = ev["text"]
+                await ws.send_text(json.dumps({"type": "speak", "text": final}))
+            else:
+                pc_tools.resolve_pc_reply(msg)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pc_tools.set_pc_socket(None)
+        memory.add_event("system", "PC agent disconnected")
+
+
+app.mount("/static", StaticFiles(directory=str(WEB)), name="static")

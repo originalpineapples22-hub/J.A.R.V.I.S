@@ -9,3 +9,8 @@ jarvis_voice_log.json
 .jarvis_installed
 jarvis_settings.json
 jarvis_memory.json
+data/
+!data/.gitkeep
+.env
+.venv/
+pc_agent/config.json

@@ -1,19 +1,10 @@
-streamlit>=1.37
-requests
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
 psutil
 duckduckgo-search
-pypdf
-pandas
-openpyxl
-pyttsx3
-keyboard
-screen-brightness-control
-pycaw
-comtypes
-# --- Always-on ear (jarvis_voice.py): offline Whisper + mic, screen vision ---
-SpeechRecognition
-pyaudio
-faster-whisper
-numpy
-mss
-pillow
+youtube-transcript-api
+pywebpush
+py-vapid
+cryptography
+websockets

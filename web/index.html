@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050b1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<title>JARVIS Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-orb"></div>
+      <div><div class="brand-name">JARVIS</div><div class="brand-sub">COMMAND CENTER</div></div>
+    </div>
+    <nav id="nav">
+      <a data-target="hero" class="active"><i>⌘</i>Command Center</a>
+      <a data-target="core"><i>◎</i>AI Core</a>
+      <a data-target="agents"><i>⚇</i>Agents</a>
+      <a data-target="timeline"><i>☑</i>Tasks <b id="nav-tasks">0</b></a>
+      <a data-target="timeline"><i>▦</i>Calendar</a>
+      <a data-target="memory"><i>◈</i>Memory</a>
+      <a data-target="hero"><i>▤</i>Conversations <b id="nav-convos">0</b></a>
+      <a data-target="memory"><i>◉</i>Knowledge Base</a>
+      <a data-target="agents"><i>⚙</i>Tools &amp; Skills <b id="nav-tools">0</b></a>
+      <a data-target="quick"><i>⇶</i>Workflows</a>
+    </nav>
+    <div class="voice-status">
+      <div class="vs-label">VOICE STATUS <span id="ear-chip" class="chip off">EAR OFF</span></div>
+      <div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="voice-state">Tap to talk</div>
+      <button id="mic" title="Tap to talk">🎤</button>
+      <label class="switch"><input type="checkbox" id="always-listen"> Always listen ("Jarvis, …")</label>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main id="main">
+    <header id="topbar">
+      <div class="status-pill">SYSTEM STATUS <span id="sys-dot" class="dot"></span> <span id="sys-word">OPTIMAL</span></div>
+      <div class="clock"><div id="date">—</div><div id="time">00:00:00</div></div>
+      <div class="top-right">
+        <input id="search" placeholder="Search…  (or type a command)">
+        <button class="icon" id="btn-notify" title="Enable notifications">🔔</button>
+        <button class="icon" id="btn-settings" title="Settings">⚙</button>
+        <div class="operator"><span>Operator<small>Commander</small></span><div class="avatar">◉</div></div>
+      </div>
+    </header>
+
+    <section id="grid">
+      <!-- AI CORE OVERVIEW -->
+      <div class="panel" id="core">
+        <div class="ph">AI CORE OVERVIEW</div>
+        <ul class="core-list">
+          <li><i>◎</i><div><b>AI Core</b><span id="c-core">Active</span></div></li>
+          <li><i>◈</i><div><b>Memory</b><span id="c-mem">—</span></div></li>
+          <li><i>♫</i><div><b>Voice</b><span id="c-voice">Browser</span></div></li>
+          <li><i>⚇</i><div><b>Agents</b><span id="c-agents">—</span></div></li>
+          <li><i>⬢</i><div><b>LLMs</b><span id="c-llm">—</span></div></li>
+          <li><i>▣</i><div><b>System</b><span id="c-sys">Optimal</span></div></li>
+        </ul>
+      </div>
+
+      <!-- HERO / CONVERSATION -->
+      <div class="panel hero" id="hero">
+        <div class="globe-wrap" id="globe-wrap">
+          <svg class="globe" viewBox="0 0 300 300">
+            <defs>
+              <radialGradient id="gg" cx="50%" cy="45%"><stop offset="0%" stop-color="rgba(90,170,255,.55)"/><stop offset="60%" stop-color="rgba(40,90,200,.12)"/><stop offset="100%" stop-color="rgba(0,0,0,0)"/></radialGradient>
+            </defs>
+            <circle cx="150" cy="150" r="140" fill="url(#gg)"/>
+            <g class="spin-y" stroke="rgba(120,190,255,.55)" fill="none" stroke-width="1">
+              <ellipse cx="150" cy="150" rx="120" ry="120"/><ellipse cx="150" cy="150" rx="80" ry="120"/><ellipse cx="150" cy="150" rx="35" ry="120"/><ellipse cx="150" cy="150" rx="2" ry="120"/>
+            </g>
+            <g stroke="rgba(120,190,255,.35)" fill="none" stroke-width="1">
+              <ellipse cx="150" cy="150" rx="120" ry="40"/><ellipse cx="150" cy="150" rx="120" ry="80"/><ellipse cx="150" cy="150" rx="120" ry="110"/><line x1="30" y1="150" x2="270" y2="150"/>
+            </g>
+            <g class="spin-slow" fill="#8fd3ff">
+              <circle cx="150" cy="30" r="2.5"/><circle cx="260" cy="120" r="2"/><circle cx="60" cy="200" r="2.5"/><circle cx="230" cy="230" r="2"/><circle cx="90" cy="70" r="1.8"/>
+            </g>
+          </svg>
+          <div class="hero-title">J A R V I S</div>
+          <div class="hero-sub">AI CORE &nbsp;·&nbsp; <span id="ver">v3.0.0</span></div>
+        </div>
+        <div id="chat"></div>
+        <form id="composer">
+          <input id="prompt" autocomplete="off" placeholder="Command J.A.R.V.I.S… (or say “Jarvis, …”)">
+          <button type="submit">➤</button>
+        </form>
+      </div>
+
+      <!-- LIVE INTELLIGENCE FEED -->
+      <div class="panel" id="feed">
+        <div class="ph">LIVE INTELLIGENCE FEED <span class="live">● LIVE</span></div>
+        <ul id="feed-list" class="feed-list"></ul>
+        <a class="more" data-target="feed">View All Intelligence ›</a>
+      </div>
+
+      <!-- ACTIVE AGENTS -->
+      <div class="panel" id="agents">
+        <div class="ph">ACTIVE AGENTS <span class="more">View All ›</span></div>
+        <div id="agent-grid" class="agent-grid"></div>
+      </div>
+
+      <!-- MISSION TIMELINE -->
+      <div class="panel" id="timeline">
+        <div class="ph">MISSION TIMELINE <span id="tl-day" class="muted">Today</span></div>
+        <ul id="tl-list" class="tl-list"></ul>
+        <form id="task-form"><input id="task-input" placeholder="Add a task… (e.g. Finalize HUD, due tomorrow)"><button>+</button></form>
+      </div>
+
+      <!-- QUICK COMMANDS -->
+      <div class="panel" id="quick">
+        <div class="ph">QUICK COMMANDS</div>
+        <div class="quick">
+          <button data-cmd="Give me a status report and my open tasks.">＋ Status Report</button>
+          <button data-cmd="What is on my agenda and which reminders are coming up?">▦ Open Calendar</button>
+          <button id="qc-voice">♫ Start Voice Chat</button>
+          <button id="qc-learn">▶ Study a Topic</button>
+          <button data-cmd="Look at my screen and tell me what I'm doing.">◉ Look at my PC screen</button>
+          <button id="qc-files">⬇ Files</button>
+        </div>
+      </div>
+
+      <!-- SYSTEM MONITOR -->
+      <div class="panel" id="sysmon">
+        <div class="ph">SYSTEM MONITOR</div>
+        <div class="rings">
+          <div class="ring" data-k="cpu"><svg viewBox="0 0 80 80"><circle class="bg" cx="40" cy="40" r="34"/><circle class="fg" cx="40" cy="40" r="34"/></svg><b>0%</b><span>CPU</span></div>
+          <div class="ring" data-k="ram"><svg viewBox="0 0 80 80"><circle class="bg" cx="40" cy="40" r="34"/><circle class="fg" cx="40" cy="40" r="34"/></svg><b>0%</b><span>RAM</span></div>
+          <div class="ring" data-k="disk"><svg viewBox="0 0 80 80"><circle class="bg" cx="40" cy="40" r="34"/><circle class="fg" cx="40" cy="40" r="34"/></svg><b>0%</b><span>Disk</span></div>
+        </div>
+      </div>
+
+      <!-- MEMORY INSIGHTS -->
+      <div class="panel" id="memory">
+        <div class="ph">MEMORY INSIGHTS</div>
+        <div class="mem-grid">
+          <svg id="spark" viewBox="0 0 200 60" preserveAspectRatio="none"><polyline id="spark-line" fill="none" stroke="#5fb8ff" stroke-width="2" points=""/></svg>
+          <div class="mem-stats">
+            <div><b id="m-memories">0</b><span>Memories</span></div>
+            <div><b id="m-lessons">0</b><span>Lessons</span></div>
+            <div><b id="m-skills">0</b><span>Skills</span></div>
+            <div><b id="m-turns">0</b><span>Session Turns</span></div>
+          </div>
+        </div>
+        <div id="skill-list" class="skill-list"></div>
+        <a class="more" id="btn-knowledge">View Knowledge Base ›</a>
+      </div>
+
+      <!-- LLM STATUS -->
+      <div class="panel" id="llm">
+        <div class="ph">LLM STATUS <span id="llm-count" class="muted">—</span></div>
+        <div id="llm-grid" class="llm-grid"></div>
+        <a class="more" id="btn-providers">Manage Providers ›</a>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="ph">SETTINGS <button class="close" id="modal-close">✕</button></div>
+    <div class="modal-body">
+      <label>Access token <input id="s-token" type="password" placeholder="from the server .env"></label>
+      <label>Operator name <input id="s-name" placeholder="sir"></label>
+      <label>Brain provider
+        <select id="s-provider"><option value="groq">Groq (free cloud)</option><option value="openai">OpenAI-compatible</option><option value="ollama">Ollama (local)</option></select></label>
+      <label>Groq API key <input id="s-groq" type="password" placeholder="gsk_…"></label>
+      <label>Groq model <select id="s-groq-model"><option value="">Auto (best available)</option></select></label>
+      <label>OpenAI-compatible base URL <input id="s-oai-url"></label>
+      <label>OpenAI-compatible key <input id="s-oai-key" type="password"></label>
+      <label>OpenAI-compatible model <input id="s-oai-model"></label>
+      <label>Ollama URL <input id="s-ollama"></label>
+      <label>Ollama model <input id="s-ollama-model"></label>
+      <label>Timezone <input id="s-tz" placeholder="Asia/Muscat"></label>
+      <label>Daily briefing hour (0-23, -1 off) <input id="s-brief" type="number" min="-1" max="23"></label>
+      <div class="row">
+        <button id="s-save" class="primary">Save</button>
+        <button id="s-push">Enable notifications on this device</button>
+        <button id="s-push-test">Test notification</button>
+      </div>
+      <div id="s-msg" class="muted"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ KNOWLEDGE / FILES DRAWER ============ -->
+<div id="drawer" class="modal hidden">
+  <div class="modal-card wide">
+    <div class="ph"><span id="drawer-title">KNOWLEDGE BASE</span> <button class="close" id="drawer-close">✕</button></div>
+    <div class="modal-body" id="drawer-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+streamlit>=1.37
+requests
+psutil
+duckduckgo-search
+pypdf
+pandas
+openpyxl
+pyttsx3
+keyboard
+screen-brightness-control
+pycaw
+comtypes
+# --- Always-on ear (jarvis_voice.py): offline Whisper + mic, screen vision ---
+SpeechRecognition
+pyaudio
+faster-whisper
+numpy
+mss
+pillow

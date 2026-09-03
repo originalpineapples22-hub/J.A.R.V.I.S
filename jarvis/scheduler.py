@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+"""Proactive behaviour: due reminders, daily briefing, system alerts → push notifications + feed."""
+import asyncio
+from datetime import datetime
+from . import memory, brain
+from .push import notify_all
+from .config import load_settings
+from .tools.system import system_metrics, local_now
+
+_last_briefing_day = None
+_last_alert = 0.0
+
+
+async def loop():
+    global _last_briefing_day, _last_alert
+    while True:
+        try:
+            for r in memory.due_reminders():
+                memory.mark_reminder_sent(r["id"])
+                memory.add_event("reminder", f"Reminder: {r['text']}")
+                await notify_all("J.A.R.V.I.S.", f"Sir, a reminder: {r['text']}")
+
+            s = load_settings()
+            now = local_now()
+            hour = int(s.get("briefing_hour", 8))
+            if hour >= 0 and now.hour == hour and _last_briefing_day != now.date():
+                _last_briefing_day = now.date()
+                await daily_briefing()
+
+            m = system_metrics()
+            import time
+            if m["online"] and (m["cpu"] > 92 or m["ram"] > 92) and time.time() - _last_alert > 900:
+                _last_alert = time.time()
+                memory.add_event("alert", f"Server load high: CPU {m['cpu']}% RAM {m['ram']}%")
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
+async def daily_briefing():
+    tasks = memory.tasks()
+    rem = memory.upcoming_reminders(5)
+    skills = memory.skills()
+    ctx = (f"Date: {local_now().strftime('%A %d %B %Y')}. Open tasks: {[t['title'] for t in tasks][:8]}. "
+           f"Upcoming reminders: {[(r['when_ts'], r['text']) for r in rem]}. Skills mastered: {len(skills)}.")
+    try:
+        text = await brain.complete([{"role": "system", "content": "You are J.A.R.V.I.S. Write a 2-3 sentence spoken morning briefing for 'sir': date, tasks, anything due. Dry wit welcome."},
+                                     {"role": "user", "content": ctx}], temperature=0.5, timeout=60)
+    except Exception:
+        text = f"Good morning, sir. You have {len(tasks)} open tasks today."
+    memory.add_event("briefing", text)
+    memory.add_message("web", "assistant", "☀️ " + text)
+    await notify_all("J.A.R.V.I.S. — Morning briefing", text)
