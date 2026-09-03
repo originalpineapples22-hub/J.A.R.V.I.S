@@ -13,6 +13,8 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 DB_FILE = DATA_DIR / "jarvis.db"
 
 DEFAULTS = {
+    "assistant_name": "J.A.R.V.I.S.",       # the AI's identity — change it and everything follows
+    "assistant_style": "calm, articulate, British, dry wit",
     "operator_name": "sir",
     "provider": "groq",                 # groq | openai | ollama
     "groq_api_key": "",

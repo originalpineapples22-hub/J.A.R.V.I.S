@@ -21,7 +21,7 @@
   <aside id="sidebar">
     <div class="brand">
       <div class="brand-orb"></div>
-      <div><div class="brand-name">JARVIS</div><div class="brand-sub">COMMAND CENTER</div></div>
+      <div><div class="brand-name" id="brand-name">JARVIS</div><div class="brand-sub">COMMAND CENTER</div></div>
     </div>
     <nav id="nav">
       <a data-target="hero" class="active"><i>⌘</i>Command Center</a>
@@ -89,7 +89,7 @@
               <circle cx="150" cy="30" r="2.5"/><circle cx="260" cy="120" r="2"/><circle cx="60" cy="200" r="2.5"/><circle cx="230" cy="230" r="2"/><circle cx="90" cy="70" r="1.8"/>
             </g>
           </svg>
-          <div class="hero-title">J A R V I S</div>
+          <div class="hero-title" id="hero-name">J A R V I S</div>
           <div class="hero-sub">AI CORE &nbsp;·&nbsp; <span id="ver">v3.0.0</span></div>
         </div>
         <div id="chat"></div>
@@ -127,6 +127,8 @@
           <button data-cmd="What is on my agenda and which reminders are coming up?">▦ Open Calendar</button>
           <button id="qc-voice">♫ Start Voice Chat</button>
           <button id="qc-learn">▶ Study a Topic</button>
+          <button data-cmd="Make me a 6-slide PowerPoint presentation about a topic of my choice — ask me the topic first.">▣ Make a Presentation</button>
+          <button data-cmd="Enter inventor mode: ask me what I want to create, then research and design a safe, legal build plan.">⚗ Inventor Mode</button>
           <button data-cmd="Look at my screen and tell me what I'm doing.">◉ Look at my PC screen</button>
           <button id="qc-files">⬇ Files</button>
         </div>
@@ -174,6 +176,8 @@
     <div class="ph">SETTINGS <button class="close" id="modal-close">✕</button></div>
     <div class="modal-body">
       <label>Access token <input id="s-token" type="password" placeholder="from the server .env"></label>
+      <label>AI name (its identity) <input id="s-ai-name" placeholder="J.A.R.V.I.S."></label>
+      <label>AI personality <input id="s-ai-style" placeholder="calm, articulate, British, dry wit"></label>
       <label>Operator name <input id="s-name" placeholder="sir"></label>
       <label>Brain provider
         <select id="s-provider"><option value="groq">Groq (free cloud)</option><option value="openai">OpenAI-compatible</option><option value="ollama">Ollama (local)</option></select></label>

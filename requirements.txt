@@ -8,3 +8,7 @@ pywebpush
 py-vapid
 cryptography
 websockets
+python-pptx
+python-docx
+openpyxl
+sympy

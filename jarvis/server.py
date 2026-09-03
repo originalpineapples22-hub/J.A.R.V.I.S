@@ -63,6 +63,7 @@ async def status():
     prov = await brain.provider_status(s)
     return {
         "version": __version__,
+        "name": s.get("assistant_name", "J.A.R.V.I.S."),
         "time": local_now().strftime("%H:%M:%S"),
         "date": local_now().strftime("%A, %d %B %Y"),
         "system": system_metrics(),
