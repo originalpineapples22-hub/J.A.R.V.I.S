@@ -33,11 +33,12 @@ from urllib.parse import urlparse, parse_qs
 from jarvis_core import (
     PERSONA, parse_local_command, chat_once, load_settings, brain_label,
     tts_speak, clean_for_speech, HAS_TTS, execute_pc_tags, extract_wake_command,
-    remember_exchange, recall_memory,
+    remember_exchange, recall_memory, summarize_history,
 )
 
 PORT = 8765
 _history = []
+_summary = ""
 _events = []          # {"id","ts","heard","reply"}
 _lock = threading.Lock()
 _ear = {"status": "starting", "engine": "none", "last_heard": "", "listening": False}
@@ -47,7 +48,7 @@ _attentive_until = 0.0                     # after "Jarvis" alone or a reply: ac
 
 # ------------------------------------------------------------------ brain
 def handle_text(text: str, source: str = "hud") -> str:
-    global _history
+    global _history, _summary
     text = text.strip()
     if not text:
         return "Yes, sir?"
@@ -59,8 +60,15 @@ def handle_text(text: str, source: str = "hud") -> str:
     if direct:
         reply = direct
     else:
+        if len(_history) > 16:
+            _summary = summarize_history(_history[:-8], settings, _summary)
+            del _history[:-8]
         memory = recall_memory(text)
-        sys_prompt = PERSONA + (f"\n\nRELEVANT PAST CONVERSATIONS (your own memory):\n{memory}" if memory else "")
+        sys_prompt = PERSONA
+        if _summary:
+            sys_prompt += f"\n\nCONVERSATION SO FAR (auto-summary): {_summary}"
+        if memory:
+            sys_prompt += f"\n\nRELEVANT PAST CONVERSATIONS (your own memory):\n{memory}"
         messages = [{"role": "system", "content": sys_prompt}] + _history[-8:] + [{"role": "user", "content": text}]
         try:
             reply = chat_once(messages, settings, temperature=0.4) or "I have no answer, sir."

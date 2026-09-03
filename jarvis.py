@@ -43,7 +43,8 @@ from jarvis_core import (
     tts_speak, clean_for_speech, parse_local_command, load_macros, describe_screen,
     load_settings, save_settings, chat_stream, chat_once, brain_online, brain_label,
     GROQ_MODELS, DEFAULT_SETTINGS, groq_models_live, pick_groq_model,
-    execute_pc_tags, PC_CONTROL_DIRECTIVE, remember_exchange, recall_memory,
+    execute_pc_tags, PC_CONTROL_DIRECTIVE, CAPABILITIES_DIRECTIVE, remember_exchange, recall_memory,
+    summarize_history,
 )
 
 BRIDGE_URL = "http://localhost:8765"
@@ -777,7 +778,9 @@ def build_system_prompt() -> str:
         "FABRICATION DIRECTIVES:",
         "10. When the user asks you to create, make, or write a file, script, or program for them, output the COMPLETE file wrapped EXACTLY as: [FILE: filename.ext] full file content [/FILE]. Python files are automatically executed in a sandbox; if errors are found you will be asked to fix them.",
         "11. " + PC_CONTROL_DIRECTIVE,
-    ])
+        "12. " + CAPABILITIES_DIRECTIVE,
+    ] + ([f"CONVERSATION SO FAR (auto-summary of earlier turns): {st.session_state.convo_summary}"]
+         if st.session_state.get("convo_summary") else []))
 
 # --- STATE MANAGEMENT ---
 if "repl_logs" not in st.session_state:
@@ -898,6 +901,10 @@ if "cfg_call_mode" not in st.session_state:
     st.session_state.cfg_call_mode = True
 if "last_event_id" not in st.session_state:
     st.session_state.last_event_id = 0
+if "convo_summary" not in st.session_state:
+    st.session_state.convo_summary = ""
+if "summarized_upto" not in st.session_state:
+    st.session_state.summarized_upto = 0
 if "pending_speech" not in st.session_state:
     st.session_state.pending_speech = None
 
@@ -1333,6 +1340,8 @@ with tab_sys:
                 st.session_state.last_file_id = None
                 st.session_state.parsed_file_context = ""
                 st.session_state.pending_study = None
+                st.session_state.convo_summary = ""
+                st.session_state.summarized_upto = 0
                 st.rerun()
             if st.button("🔒 LOCK J.A.R.V.I.S.", key="auth_lock"):
                 st.session_state.authorized = False
@@ -1422,6 +1431,14 @@ with tab_chat:
             # Cap the history sent to the local model so long study sessions
             # don't overflow the context window.
             MAX_API_MESSAGES = 12
+            # Rolling summary: fold turns that are about to drop out of the window
+            # into a running summary so nothing is forgotten in long sessions.
+            _cutoff = max(0, len(st.session_state.messages) - MAX_API_MESSAGES)
+            if _cutoff - st.session_state.summarized_upto >= 6:
+                _older = st.session_state.messages[st.session_state.summarized_upto:_cutoff]
+                _older = [{"role": m["role"], "content": m.get("api_prompt", m["content"])} for m in _older]
+                st.session_state.convo_summary = summarize_history(_older, SETTINGS, st.session_state.convo_summary)
+                st.session_state.summarized_upto = _cutoff
             history_source = st.session_state.messages[-MAX_API_MESSAGES:]
             history_for_api = [{"role": m["role"], "content": m.get("api_prompt", m["content"])} for m in history_source]
             api_messages = [{"role": "system", "content": build_system_prompt()}] + history_for_api
