@@ -3,7 +3,8 @@
 {"type":"token","text"} | {"type":"tool","name","args"} | {"type":"final","text"} | {"type":"error","text"}"""
 import re
 import json
-from . import brain, memory, selfdev
+import asyncio
+from . import brain, memory, selfdev, rag
 from .tools import manifest, get as get_tool
 from .config import load_settings
 
@@ -23,6 +24,16 @@ PERSONA = (
     "MEMORY: Sections marked MEMORY and KNOWLEDGE are your own recollections; trust and use them.\n"
     "PROACTIVE: If the operator's context (tasks, reminders, system stress) warrants it, mention it briefly and unprompted."
 )
+
+
+async def semantic_context(user_text: str) -> str:
+    """Meaning-based recall, when an embedding backend is available."""
+    try:
+        if rag.available():
+            return await rag.hybrid_recall(user_text, k=5)
+    except Exception:
+        pass
+    return ""
 
 
 def build_system(channel: str, user_text: str) -> str:
@@ -75,7 +86,11 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
     s = load_settings()
     memory.add_message(channel, "user", user_text)
     history = memory.recent_messages(channel, n=12)
-    messages = [{"role": "system", "content": build_system(channel, user_text)}] + history
+    sysmsg = build_system(channel, user_text)
+    sem = await semantic_context(user_text)
+    if sem:
+        sysmsg += "\n\nSEMANTIC MEMORY (recalled by meaning):\n" + sem
+    messages = [{"role": "system", "content": sysmsg}] + history
     final_parts = []
     steps = 0
     max_steps = int(s.get("max_tool_steps", 4))
@@ -125,7 +140,13 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
         yield {"type": "token", "text": "\n\n"}
     final = "\n\n".join(p for p in final_parts if p).strip() or "Done, sir."
     memory.add_message(channel, "assistant", final)
-    memory.remember(f"Operator: {user_text[:400]}\nJ.A.R.V.I.S.: {final[:600]}")
+    exchange = f"Operator: {user_text[:400]}\n0.5.4.M.4: {final[:600]}"
+    memory.remember(exchange)
+    try:
+        if rag.available():
+            asyncio.create_task(rag.index(exchange, kind="exchange"))
+    except Exception:
+        pass
     yield {"type": "final", "text": final}
     await maybe_summarize(channel)
 

@@ -51,11 +51,31 @@ async def transcribe(audio: bytes, filename: str = "audio.webm") -> str:
     return ""
 
 
+ELEVEN_URL = "https://api.elevenlabs.io/v1/text-to-speech"
+
+
 async def synthesize(text: str, voice: str = "") -> bytes:
-    """Natural speech via edge-tts (no key). Returns mp3 bytes, or b'' if unavailable."""
+    """Natural speech. ElevenLabs when a key is set (best quality, cloneable
+    voices), otherwise edge-tts, which is free and still very good."""
     text = (text or "").strip()
     if not text:
         return b""
+    s0 = load_settings()
+    ek = (s0.get("elevenlabs_key") or "").strip()
+    if ek:
+        vid = voice or s0.get("elevenlabs_voice") or "onwK4e9ZLuTAKqWW03F9"   # 'Daniel' — calm British
+        clean0 = re.sub(r"```.*?```", " code omitted ", text, flags=re.DOTALL)
+        clean0 = re.sub(r"[*_#`>\[\]|]", "", clean0)[:2500]
+        try:
+            async with httpx.AsyncClient(timeout=120) as c:
+                r = await c.post(f"{ELEVEN_URL}/{vid}",
+                                 headers={"xi-api-key": ek, "Content-Type": "application/json"},
+                                 json={"text": clean0, "model_id": s0.get("elevenlabs_model", "eleven_turbo_v2_5"),
+                                       "voice_settings": {"stability": 0.45, "similarity_boost": 0.8}})
+                if r.status_code == 200 and r.content:
+                    return r.content
+        except Exception:
+            pass
     try:
         import edge_tts
     except Exception:

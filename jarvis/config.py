@@ -32,6 +32,17 @@ DEFAULTS = {
     "wake_word": "osama",
     "sleep_phrase": "all done sleep",
     "max_tool_steps": 4,
+    # premium / optional services (all degrade gracefully when blank)
+    "elevenlabs_key": "",
+    "elevenlabs_voice": "onwK4e9ZLuTAKqWW03F9",
+    "elevenlabs_model": "eleven_turbo_v2_5",
+    "tavily_key": "",
+    "wolfram_appid": "",
+    "homeassistant_url": "",
+    "homeassistant_token": "",
+    "webhooks": "{}",
+    "embed_model": "text-embedding-3-small",
+    "semantic_memory": True,
 }
 
 

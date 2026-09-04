@@ -83,7 +83,7 @@ async function refresh() {
   $('#ver').textContent = 'v' + s.version; if (s.name) setName(s.name);
   ring('cpu', s.system.cpu); ring('ram', s.system.ram); ring('disk', s.system.disk);
   const stressed = s.system.cpu > 90 || s.system.ram > 90; $('#sys-word').textContent = stressed ? 'STRESSED' : 'OPTIMAL'; $('#sys-dot').style.background = stressed ? 'var(--warn)' : 'var(--ok)'; $('#c-sys').textContent = stressed ? 'Under load' : 'Optimal';
-  $('#c-mem').textContent = `${s.memory.memories} memories stored`;
+  $('#c-mem').textContent = `${s.memory.memories} memories · ${(s.rag && s.rag.available) ? 'semantic' : 'keyword'}`;
   $('#m-memories').textContent = s.memory.memories; $('#m-tasks').textContent = s.memory.tasks_open; $('#m-files').textContent = (s.files||[]).length; $('#m-turns').textContent = s.memory.messages;
   $('#nav-tasks').textContent = s.memory.tasks_open; $('#nav-convos').textContent = s.memory.messages; $('#nav-tools').textContent = s.agents.reduce((n, a) => n + a.tools.length, 0);
   sparkHist.push(s.memory.memories); if (sparkHist.length > 40) sparkHist.shift();
@@ -107,10 +107,18 @@ $$('#nav a, a.more[data-target]').forEach(a => a.onclick = () => { $$('#nav a').
 /* ---------------- settings */
 const modal = $('#modal');
 function openSettings(msg) { modal.classList.remove('hidden'); $('#s-msg').textContent = msg || ''; $('#s-token').value = TOKEN; if (TOKEN) loadSettings(); }
-async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour; const sel = $('#s-groq-model'); sel.innerHTML = '<option value="">Auto (best available)</option>' + (s.groq_models || []).map(m => `<option ${m === s.groq_model ? 'selected' : ''}>${m}</option>`).join(''); } catch (_) {} }
+async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour;
+    $('#s-tavily').value = s.tavily_key || ''; $('#s-wolfram').value = s.wolfram_appid || '';
+    $('#s-eleven').value = s.elevenlabs_key || ''; $('#s-eleven-voice').value = s.elevenlabs_voice || '';
+    $('#s-ha-url').value = s.homeassistant_url || ''; $('#s-ha-token').value = s.homeassistant_token || '';
+    $('#s-hooks').value = s.webhooks || '{}'; const sel = $('#s-groq-model'); sel.innerHTML = '<option value="">Auto (best available)</option>' + (s.groq_models || []).map(m => `<option ${m === s.groq_model ? 'selected' : ''}>${m}</option>`).join(''); } catch (_) {} }
 $('#btn-settings').onclick = () => openSettings(); $('#modal-close').onclick = () => modal.classList.add('hidden');
 $('#s-save').onclick = async () => { TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
-  try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8')})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = 'Could not save — check the token.'; } };
+  try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8'),
+      tavily_key: $('#s-tavily').value, wolfram_appid: $('#s-wolfram').value,
+      elevenlabs_key: $('#s-eleven').value, elevenlabs_voice: $('#s-eleven-voice').value,
+      homeassistant_url: $('#s-ha-url').value, homeassistant_token: $('#s-ha-token').value,
+      webhooks: $('#s-hooks').value})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = 'Could not save — check the token.'; } };
 
 /* ---------------- push notifications (iPhone: install to Home Screen first) */
 async function enablePush() {

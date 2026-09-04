@@ -197,6 +197,14 @@
       <label>Ollama model <input id="s-ollama-model"></label>
       <label>Timezone <input id="s-tz" placeholder="Asia/Muscat"></label>
       <label>Daily briefing hour (0-23, -1 off) <input id="s-brief" type="number" min="-1" max="23"></label>
+      <div class="ph" style="margin-top:10px">UPGRADES <span class="muted">— all optional, free tiers available</span></div>
+      <label>Tavily key <span class="muted">— research-grade search</span><input id="s-tavily" type="password" placeholder="tvly-…"></label>
+      <label>Wolfram Alpha AppID <span class="muted">— exact maths</span><input id="s-wolfram" type="password"></label>
+      <label>ElevenLabs key <span class="muted">— cinematic voice</span><input id="s-eleven" type="password"></label>
+      <label>ElevenLabs voice ID <input id="s-eleven-voice" placeholder="onwK4e9ZLuTAKqWW03F9"></label>
+      <label>Home Assistant URL <input id="s-ha-url" placeholder="http://homeassistant.local:8123"></label>
+      <label>Home Assistant token <input id="s-ha-token" type="password"></label>
+      <label>Webhooks (JSON) <input id="s-hooks" placeholder='{"email me":"https://hook.eu2.make.com/..."}'></label>
       <div class="row">
         <button id="s-save" class="primary">Save</button>
         <button id="s-push">Enable notifications on this device</button>

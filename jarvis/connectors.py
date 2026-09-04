@@ -24,6 +24,12 @@ CATALOG = [
     ("learn",       "Self-Learning",    "Reasoning",    10,  "live",  "Master any tech in minutes"),
     ("memory",      "Long-Term Memory", "Core",          8,  "live",  "Remembers everything, forever"),
     ("selfdev",     "Self-Development", "Core",         14,  "live",  "Reads & fixes its own code, auto-rollback"),
+    ("rag",         "Semantic Memory",  "Core",         10,  "live",  "Recall by meaning, not keywords (vector RAG)"),
+    ("tavily",      "Tavily Research",  "Knowledge",     8,  "key",   "Agent-grade search: synthesised answers"),
+    ("wolfram",     "Wolfram Alpha",    "Reasoning",     9,  "key",   "Mathematically exact computation"),
+    ("elevenlabs",  "ElevenLabs Voice", "Perception",    6,  "key",   "Cinematic, human-quality speech"),
+    ("browser",     "Autonomous Browser","Control",      8,  "live",  "Reads JS-heavy sites via a real browser"),
+    ("webhooks",    "Automation Hooks", "Control",       6,  "key",   "Make.com / Zapier / n8n triggers"),
     ("autolearn",   "Autonomous Study", "Core",         12,  "live",  "Learns 109 technologies by itself"),
     ("codeloop",    "Self-Fixing Coder","Creation",     11,  "live",  "Writes, runs, debugs and repairs its own code"),
     ("pc",          "PC Control",       "Control",       7,  "agent", "Drive your PC (needs PC agent)"),
@@ -39,7 +45,7 @@ CATALOG = [
     ("github",      "GitHub",           "Productivity",  6,  "key",   "Repos, issues, notifications"),
     ("maps",        "Google Maps",      "Live Data",     4,  "key",   "Travel time, 'when to leave'"),
     ("stocks",      "Stocks",           "Live Data",     4,  "key",   "Market quotes & watchlist"),
-    ("smarthome",   "Smart Home",       "Control",       6,  "key",   "Lights, plugs, climate"),
+    ("smarthome",   "Home Assistant",   "Control",       8,  "key",   "Lights, plugs, climate, sensors"),
     ("email_imap",  "Any Email (IMAP)", "Messaging",     6,  "key",   "Non-Google inboxes"),
     ("translate",   "Translator",       "Live Data",     4,  "live",  "Any language, both ways"),
 ]
@@ -53,7 +59,7 @@ def _credential_present(cid, s):
         "gmail": "google_token", "gcalendar": "google_token", "gdrive": "google_token", "gtasks": "google_token",
         "discord": "discord_bot_token", "notion": "notion_key",
         "github": "github_token", "maps": "google_maps_key", "stocks": "stocks_key",
-        "smarthome": "smarthome_token", "email_imap": "imap_password",
+        "smarthome": "homeassistant_token", "tavily": "tavily_key", "wolfram": "wolfram_appid", "elevenlabs": "elevenlabs_key", "webhooks": "webhooks", "email_imap": "imap_password",
     }
     key = m.get(cid)
     return bool(key and s.get(key))

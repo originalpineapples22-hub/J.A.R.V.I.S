@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
-from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev
+from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -83,6 +83,7 @@ async def status():
         "push_subs": len(memory.push_subs()),
         "capability": connectors.status(),
         "curriculum": curriculum.auto_state(),
+        "rag": {"available": rag.available(), "backend": rag.backend_name()},
     }
 
 
