@@ -30,9 +30,10 @@ function connect() {
   ws.onclose = () => { wsReady = false; $('#c-core').textContent = 'Reconnecting…'; setTimeout(connect, 2500); };
   ws.onmessage = e => {
     const ev = JSON.parse(e.data);
-    if (ev.type === 'token') { if (!current) current = addMsg('jarvis', ''); current._raw = (current._raw || '') + ev.text; render(current, current._raw); chat.scrollTop = chat.scrollHeight; }
+    if (ev.type === 'token') { if (!current) current = addMsg('jarvis', ''); current._raw = (current._raw || '') + ev.text; render(current, current._raw); chat.scrollTop = chat.scrollHeight; if (call.open){ callBuf += ev.text; $('#call-caption').textContent = callBuf.slice(-240); } }
     else if (ev.type === 'tool') { addMsg('tool', `⚙ ${ev.name} ${JSON.stringify(ev.args).slice(0, 120)}`); markAgent(ev.name); }
-    else if (ev.type === 'final') { if (!current) current = addMsg('jarvis', ''); render(current, ev.text); speak(ev.text); current = null; busy = false; $('#voice-state').textContent = 'Tap to talk'; refresh(); }
+    else if (ev.type === 'final') { if (!current) current = addMsg('jarvis', ''); render(current, ev.text); speak(ev.text); current = null; busy = false; $('#voice-state').textContent = 'Tap to talk'; refresh();
+      if (call.open){ callWaiting=false; call.speaking=true; $('#orb').classList.add('speaking'); $('#call-status').textContent='speaking'; $('#call-caption').textContent = ev.text; callSpeak(ev.text); } }
     else if (ev.type === 'error') { addMsg('jarvis', '⚠ ' + ev.text); current = null; busy = false; }
   };
 }
@@ -78,7 +79,7 @@ function ring(k, v) { const el = document.querySelector(`.ring[data-k="${k}"]`);
 async function refresh() {
   if (!TOKEN) return;
   let s; try { s = await api('/api/status'); } catch (_) { return; }
-  $('#ver').textContent = 'v' + s.version; if (s.name) { const n = s.name.replace(/\./g, ''); $('#hero-name').textContent = n.toUpperCase().split('').join(' '); $('#brand-name').textContent = n.toUpperCase(); document.title = n + ' Command Center'; }
+  $('#ver').textContent = 'v' + s.version; if (s.name) setName(s.name);
   ring('cpu', s.system.cpu); ring('ram', s.system.ram); ring('disk', s.system.disk);
   const stressed = s.system.cpu > 90 || s.system.ram > 90; $('#sys-word').textContent = stressed ? 'STRESSED' : 'OPTIMAL'; $('#sys-dot').style.background = stressed ? 'var(--warn)' : 'var(--ok)'; $('#c-sys').textContent = stressed ? 'Under load' : 'Optimal';
   $('#c-mem').textContent = `${s.memory.memories} memories · ${s.memory.lessons} lessons`;
@@ -129,6 +130,100 @@ const drawer = $('#drawer'); $('#drawer-close').onclick = () => drawer.classList
 $('#btn-knowledge').onclick = async () => { const rows = await api('/api/knowledge'); $('#drawer-title').textContent = 'KNOWLEDGE BASE'; $('#drawer-body').innerHTML = rows.map(r => `<div class="lesson"><b>${r.topic}</b> — ${r.lesson} <small class="muted">${r.ts}</small><br>${r.content}…</div>`).join('') || '<div class="muted">Nothing learned yet.</div>'; drawer.classList.remove('hidden'); };
 $('#btn-providers').onclick = () => openSettings();
 async function openFiles() { const s = await api('/api/status'); $('#drawer-title').textContent = 'FABRICATED FILES'; $('#drawer-body').innerHTML = s.files.map(f => `<div class="lesson"><b>${f.name}</b> · ${f.size} bytes <a class="more" style="display:inline" href="/api/files/${encodeURIComponent(f.name)}?token=${encodeURIComponent(TOKEN)}">⬇ download</a></div>`).join('') || '<div class="muted">No files yet — ask J.A.R.V.I.S. to make one.</div>'; drawer.classList.remove('hidden'); }
+
+
+/* ---------------- identity */
+function setName(n){
+  const spaced = n.split('').join(n.includes('.') ? '' : ' ');
+  const el = id => document.getElementById(id);
+  if (el('hero-name')) el('hero-name').textContent = n.includes('.') ? n : n.toUpperCase().split('').join(' ');
+  if (el('brand-name')) el('brand-name').textContent = n;
+  if (el('call-name')) el('call-name').textContent = n;
+  document.title = n + ' Command Center';
+  window.AI_NAME = n;
+}
+window.AI_NAME = '0.5.4.M.4';
+
+/* ---------------- CALL MODE: full-screen reactive-orb voice call */
+const call = {open:false, rec:null, listening:false, speaking:false, muted:false, audioCtx:null, analyser:null, raf:0};
+function openCall(){
+  if (!TOKEN){ openSettings('Link this device first, sir.'); return; }
+  if (!SR){ alert('Voice calls need Chrome, Edge or Safari.'); return; }
+  $('#call').classList.remove('hidden'); call.open = true;
+  $('#call-status').textContent = 'listening';
+  $('#call-caption').innerHTML = `<span class="you">Say something — ${window.AI_NAME} is listening…</span>`;
+  startOrbMic(); callListen();
+  speak('Online, sir. How may I help?');
+}
+function endCall(){
+  call.open = false; $('#call').classList.add('hidden');
+  try{ call.rec && (call.rec.onend = null, call.rec.stop()); }catch(_){}
+  cancelAnimationFrame(call.raf);
+  if (call.audioCtx){ try{ call.audioCtx.close(); }catch(_){} call.audioCtx = null; }
+  speechSynthesis.cancel();
+}
+$('#qc-call') && ($('#qc-call').onclick = openCall);
+$('#call-end').onclick = endCall;
+$('#call-mute').onclick = () => { call.muted = !call.muted; $('#call-mute').classList.toggle('muted', call.muted); $('#call-mute').textContent = call.muted ? '🔇' : '🎙️'; };
+
+async function startOrbMic(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    call.audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = call.audioCtx.createMediaStreamSource(stream);
+    call.analyser = call.audioCtx.createAnalyser(); call.analyser.fftSize = 128;
+    src.connect(call.analyser);
+    const data = new Uint8Array(call.analyser.frequencyBinCount);
+    const orb = $('#orb'), cv = $('#orb-viz'), cx = cv.getContext('2d');
+    const draw = () => {
+      call.raf = requestAnimationFrame(draw);
+      call.analyser.getByteFrequencyData(data);
+      let sum = 0; for (const v of data) sum += v; const amp = sum / data.length / 255; // 0..1
+      const level = call.speaking ? 0.55 + 0.45*Math.abs(Math.sin(Date.now()/120)) : amp;
+      orb.style.transform = `scale(${1 + level*0.28})`;
+      // frequency ring
+      cx.clearRect(0,0,cv.width,cv.height); const cxp=cv.width/2, cyp=cv.height/2, R=cv.width*0.34;
+      cx.strokeStyle = call.speaking ? 'rgba(120,240,255,.9)' : 'rgba(56,230,255,.55)'; cx.lineWidth=3; cx.beginPath();
+      const N=data.length;
+      for (let i=0;i<=N;i++){ const a=i/N*Math.PI*2; const r=R+(data[i%N]/255)*R*0.6*(call.speaking?1.1:1); const x=cxp+Math.cos(a)*r, y=cyp+Math.sin(a)*r; i?cx.lineTo(x,y):cx.moveTo(x,y);}
+      cx.stroke();
+    };
+    draw();
+  }catch(e){ $('#call-status').textContent = 'mic blocked'; }
+}
+function callListen(){
+  if (!call.open) return;
+  const r = new SR(); call.rec = r; r.lang='en-US'; r.interimResults=true; r.continuous=false;
+  r.onstart = () => { call.listening=true; if(!call.speaking) $('#call-status').textContent='listening'; };
+  r.onresult = e => {
+    let txt=''; for (const res of e.results) txt += res[0].transcript;
+    $('#call-caption').innerHTML = `<span class="you">${txt}</span>`;
+    if (e.results[e.results.length-1].isFinal && txt.trim() && !call.muted){ callSend(txt.trim()); }
+  };
+  r.onerror = () => {};
+  r.onend = () => { call.listening=false; if (call.open && !call.speaking) setTimeout(callListen, 200); };
+  try{ r.start(); }catch(_){ setTimeout(callListen, 400); }
+}
+let callWaiting=false;
+function callSend(text){
+  if (callWaiting || !wsReady) return; callWaiting=true;
+  try{ call.rec.onend=null; call.rec.stop(); }catch(_){}
+  $('#call-status').textContent='thinking'; speechSynthesis.cancel();
+  callBuf=''; callTarget=$('#call-caption'); ws.send(JSON.stringify({text, channel:'call'}));
+}
+let callBuf='', callTarget=null;
+
+
+function callSpeak(text){
+  if (!('speechSynthesis' in window)){ callDone(); return; }
+  const clean = text.replace(/```[\s\S]*?```/g,' code omitted ').replace(/[*_#`>\[\]|]/g,'').slice(0,600);
+  const u = new SpeechSynthesisUtterance(clean); u.rate=1.03; u.pitch=0.9;
+  const vs = speechSynthesis.getVoices();
+  u.voice = vs.find(v=>/en-GB/i.test(v.lang)&&/daniel|george|ryan|male/i.test(v.name)) || vs.find(v=>/en-GB/i.test(v.lang)) || vs.find(v=>/^en/i.test(v.lang)) || null;
+  u.onend = callDone; u.onerror = callDone;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+function callDone(){ call.speaking=false; $('#orb').classList.remove('speaking'); if (call.open){ $('#call-status').textContent='listening'; callListen(); } }
 
 /* ---------------- boot */
 (async () => {

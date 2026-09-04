@@ -10,7 +10,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
-<title>JARVIS Command Center</title>
+<title>0.5.4.M.4 Command Center</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
@@ -125,6 +125,7 @@
         <div class="quick">
           <button data-cmd="Give me a status report and my open tasks.">＋ Status Report</button>
           <button data-cmd="What is on my agenda and which reminders are coming up?">▦ Open Calendar</button>
+          <button id="qc-call">☎ Call 0.5.4.M.4</button>
           <button id="qc-voice">♫ Start Voice Chat</button>
           <button id="qc-learn">▶ Study a Topic</button>
           <button data-cmd="Make me a 6-slide PowerPoint presentation about a topic of my choice — ask me the topic first.">▣ Make a Presentation</button>
@@ -208,6 +209,22 @@
   </div>
 </div>
 
+
+<!-- ============ CALL MODE (full-screen voice) ============ -->
+<div id="call" class="call hidden">
+  <div class="call-top"><span id="call-name">0.5.4.M.4</span><span id="call-status">connecting…</span></div>
+  <div class="orb-stage">
+    <div class="orb" id="orb">
+      <div class="orb-core"></div><div class="orb-ring r1"></div><div class="orb-ring r2"></div><div class="orb-ring r3"></div>
+      <canvas id="orb-viz" width="600" height="600"></canvas>
+    </div>
+  </div>
+  <div id="call-caption" class="call-caption"></div>
+  <div class="call-controls">
+    <button id="call-mute" class="cc" title="Mute mic">🎙️</button>
+    <button id="call-end" class="cc end" title="End call">✕</button>
+  </div>
+</div>
 <script src="/static/app.js"></script>
 </body>
 </html>
