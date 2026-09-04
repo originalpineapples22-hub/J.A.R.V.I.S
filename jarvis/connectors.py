@@ -23,6 +23,9 @@ CATALOG = [
     ("coder",       "Code Fabricator",  "Creation",      9,  "live",  "Write & sandbox-test programs"),
     ("learn",       "Self-Learning",    "Reasoning",    10,  "live",  "Master any tech in minutes"),
     ("memory",      "Long-Term Memory", "Core",          8,  "live",  "Remembers everything, forever"),
+    ("selfdev",     "Self-Development", "Core",         14,  "live",  "Reads & fixes its own code, auto-rollback"),
+    ("autolearn",   "Autonomous Study", "Core",         12,  "live",  "Learns 109 technologies by itself"),
+    ("codeloop",    "Self-Fixing Coder","Creation",     11,  "live",  "Writes, runs, debugs and repairs its own code"),
     ("pc",          "PC Control",       "Control",       7,  "agent", "Drive your PC (needs PC agent)"),
     ("vision",      "Screen/Cam Vision","Perception",    7,  "live",  "See screen & webcam"),
     # activate after deploy + credential

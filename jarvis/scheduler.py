@@ -6,13 +6,16 @@ from . import memory, brain
 from .push import notify_all
 from .config import load_settings
 from .tools.system import system_metrics, local_now
+from . import curriculum, selfdev
 
 _last_briefing_day = None
 _last_alert = 0.0
+_last_repair = 0.0
 
 
 async def loop():
     global _last_briefing_day, _last_alert
+    import time
     while True:
         try:
             for r in memory.due_reminders():
@@ -27,13 +30,21 @@ async def loop():
                 _last_briefing_day = now.date()
                 await daily_briefing()
 
+            # unprompted self-repair: if a fault was recorded, try to fix it
+            global _last_repair
+            errs = selfdev.recent_errors(1)
+            if errs and time.time() - _last_repair > 1800:
+                _last_repair = time.time()
+                res = await selfdev.auto_repair()
+                memory.add_event("system", f"Auto-repair: {res[:160]}")
+
             m = system_metrics()
             import time
             if m["online"] and (m["cpu"] > 92 or m["ram"] > 92) and time.time() - _last_alert > 900:
                 _last_alert = time.time()
                 memory.add_event("alert", f"Server load high: CPU {m['cpu']}% RAM {m['ram']}%")
-        except Exception:
-            pass
+        except Exception as e:
+            selfdev.record_error('scheduler', e)
         await asyncio.sleep(30)
 
 

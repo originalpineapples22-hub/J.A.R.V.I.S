@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
-from . import __version__, memory, agent, brain, learning, speech
+from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -34,6 +34,7 @@ def auth(request: Request, token: str = Query(default=None)):
 async def _startup():
     memory.db()
     asyncio.get_event_loop().create_task(scheduler_loop())
+    asyncio.get_event_loop().create_task(curriculum.autonomous_loop())
     memory.add_event("system", f"J.A.R.V.I.S. core v{__version__} online")
 
 
@@ -81,6 +82,7 @@ async def status():
         "files": list_files()[:8],
         "push_subs": len(memory.push_subs()),
         "capability": connectors.status(),
+        "curriculum": curriculum.auto_state(),
     }
 
 

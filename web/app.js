@@ -96,6 +96,8 @@ async function refresh() {
   $('#llm-grid').innerHTML = tiles.map(([n, v], i) => `<div class="llm ${v.connected ? 'on' : ''} ${p.active === ['groq', 'openai', 'ollama'][i] ? 'active' : ''}"><b>${n}</b><span>${v.connected ? 'Connected' : 'Not linked'}${v.model ? ' · ' + v.model : ''}</span></div>`).join('');
   $('#llm-count').textContent = tiles.filter(([, v]) => v.connected).length + ' Connected'; $('#c-llm').textContent = (p[p.active] && p[p.active].model) || p.active;
   $('#c-voice').textContent = s.pc_online ? 'Browser + PC ear' : 'Browser';
+  if (s.curriculum) { const cu = s.curriculum; const el = $('#c-study');
+    if (el) el.textContent = cu.current ? `studying ${cu.current} · ${cu.learned}/${cu.total}` : `${cu.learned}/${cu.total} mastered (${cu.percent}%)`; }
   if (s.capability) { const cap = s.capability; $('#c-iq').textContent = `${cap.index} IQ · ${cap.active_count}/${cap.total_count} apps`; window.CAP = cap; }
 }
 async function doneTask(id) { await api(`/api/tasks/${id}/done`, {method: 'POST'}); refresh(); }

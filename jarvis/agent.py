@@ -3,7 +3,7 @@
 {"type":"token","text"} | {"type":"tool","name","args"} | {"type":"final","text"} | {"type":"error","text"}"""
 import re
 import json
-from . import brain, memory
+from . import brain, memory, selfdev
 from .tools import manifest, get as get_tool
 from .config import load_settings
 
@@ -99,6 +99,7 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
                     yield {"type": "token", "text": buf[sent:visible_upto]}
                     sent = visible_upto
         except Exception as e:
+            selfdev.record_error("agent.run", e)
             yield {"type": "error", "text": f"Cognitive core error: {e}"}
             memory.add_message(channel, "assistant", f"(error: {e})")
             return
