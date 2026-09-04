@@ -30,8 +30,8 @@ CATALOG = [
     ("gcalendar",   "Google Calendar",  "Google",        7,  "oauth", "Agenda, events, reminders"),
     ("gdrive",      "Google Drive/Docs","Google",        6,  "oauth", "Read & create documents"),
     ("gtasks",      "Google Tasks",     "Google",        3,  "oauth", "Sync to-dos"),
-    ("spotify",     "Spotify",          "Media",         5,  "oauth", "Play music by voice"),
-    ("discord",     "Discord",          "Messaging",     5,  "key",   "Read/send messages (Oman-friendly)"),
+    ("ytmusic",     "YouTube Music",    "Media",         5,  "live",  "Play any song or playlist by voice"),
+    ("discord",     "Discord",          "Messaging",     7,  "key",   "Chat + voice calls with 0.5.4.M.4"),
     ("notion",      "Notion",           "Productivity",  6,  "key",   "Your notes & databases"),
     ("github",      "GitHub",           "Productivity",  6,  "key",   "Repos, issues, notifications"),
     ("maps",        "Google Maps",      "Live Data",     4,  "key",   "Travel time, 'when to leave'"),
@@ -48,7 +48,7 @@ _LIVE_ACTIVE = {c[0] for c in CATALOG if c[4] == "live"}
 def _credential_present(cid, s):
     m = {
         "gmail": "google_token", "gcalendar": "google_token", "gdrive": "google_token", "gtasks": "google_token",
-        "spotify": "spotify_token", "discord": "discord_bot_token", "notion": "notion_key",
+        "discord": "discord_bot_token", "notion": "notion_key",
         "github": "github_token", "maps": "google_maps_key", "stocks": "stocks_key",
         "smarthome": "smarthome_token", "email_imap": "imap_password",
     }

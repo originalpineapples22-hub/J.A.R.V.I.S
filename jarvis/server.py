@@ -4,11 +4,12 @@ push notifications, PC-agent relay, Siri-friendly plain-text endpoint."""
 import json
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request, Query, UploadFile, File
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, memory, agent, brain, learning
+import httpx
+from . import __version__, memory, agent, brain, learning, speech
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -176,6 +177,24 @@ async def post_settings(req: Request):
 async def learn(req: Request):
     d = await req.json()
     return {"started": learning.start_study(d.get("topic", "").strip())}
+
+
+@app.post("/api/transcribe", dependencies=[Depends(auth)])
+async def transcribe(file: UploadFile = File(...)):
+    """Accurate speech-to-text via Whisper (Groq). Far fewer invented words
+    than the browser recogniser, and it returns empty for silence/noise."""
+    data = await file.read()
+    text = await speech.transcribe(data, file.filename or "audio.webm")
+    return {"text": text}
+
+
+@app.get("/api/tts", dependencies=[Depends(auth)])
+async def tts(text: str = "", voice: str = ""):
+    audio = await speech.synthesize(text, voice)
+    if not audio:
+        raise HTTPException(503, "TTS unavailable")
+    from fastapi.responses import Response
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.get("/api/connectors", dependencies=[Depends(auth)])

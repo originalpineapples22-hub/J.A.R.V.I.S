@@ -71,7 +71,7 @@ function setupRec(continuous) {
   return r;
 }
 $('#mic').onclick = () => { if (always) return; if (listening) { rec && rec.stop(); return; } speechSynthesis.cancel(); rec = setupRec(false); try { rec && rec.start(); } catch (_) {} };
-$('#always-listen').onchange = e => { always = e.target.checked; if (rec) { try { rec.stop(); } catch (_) {} } if (always) { rec = setupRec(true); try { rec.start(); } catch (_) {} } $('#ear-chip').textContent = always ? 'EAR ON' : 'EAR OFF'; $('#ear-chip').classList.toggle('off', !always); };
+
 
 /* ---------------- dashboard refresh */
 const agentEls = {}; let sparkHist = [];
@@ -83,12 +83,11 @@ async function refresh() {
   $('#ver').textContent = 'v' + s.version; if (s.name) setName(s.name);
   ring('cpu', s.system.cpu); ring('ram', s.system.ram); ring('disk', s.system.disk);
   const stressed = s.system.cpu > 90 || s.system.ram > 90; $('#sys-word').textContent = stressed ? 'STRESSED' : 'OPTIMAL'; $('#sys-dot').style.background = stressed ? 'var(--warn)' : 'var(--ok)'; $('#c-sys').textContent = stressed ? 'Under load' : 'Optimal';
-  $('#c-mem').textContent = `${s.memory.memories} memories · ${s.memory.lessons} lessons`;
-  $('#m-memories').textContent = s.memory.memories; $('#m-lessons').textContent = s.memory.lessons; $('#m-skills').textContent = s.memory.skills; $('#m-turns').textContent = s.memory.messages;
+  $('#c-mem').textContent = `${s.memory.memories} memories stored`;
+  $('#m-memories').textContent = s.memory.memories; $('#m-tasks').textContent = s.memory.tasks_open; $('#m-files').textContent = (s.files||[]).length; $('#m-turns').textContent = s.memory.messages;
   $('#nav-tasks').textContent = s.memory.tasks_open; $('#nav-convos').textContent = s.memory.messages; $('#nav-tools').textContent = s.agents.reduce((n, a) => n + a.tools.length, 0);
   sparkHist.push(s.memory.memories); if (sparkHist.length > 40) sparkHist.shift();
   const mx = Math.max(...sparkHist, 1), mn = Math.min(...sparkHist); $('#spark-line').setAttribute('points', sparkHist.map((v, i) => `${i * 200 / Math.max(sparkHist.length - 1, 1)},${58 - (v - mn) / Math.max(mx - mn, 1) * 50}`).join(' '));
-  $('#skill-list').innerHTML = s.skills.map(k => `<span class="skill">${k.topic} · ${k.level}</span>`).join('') || '<span class="muted">No skills yet — try "Study a Topic".</span>';
   const learning = Object.entries(s.learning || {}); $('#c-agents').textContent = learning.length ? `${learning.length} studying (${learning.map(([t, v]) => `${t} ${v.done}/${v.total}`).join(', ')})` : `${s.agents.length} agents · standby`;
   $('#feed-list').innerHTML = s.events.map(e => `<li><i>${{learn: '📚', task: '☑', reminder: '⏰', file: '📦', alert: '⚠', briefing: '☀', system: '◎'}[e.kind] || '•'}</i><div>${e.text}<small>${e.ts}</small></div></li>`).join('') || '<li class="muted">Quiet for now.</li>';
   $('#agent-grid').innerHTML = ''; for (const a of s.agents) { const d = document.createElement('div'); d.className = 'agent'; d.innerHTML = `<b>${a.name}</b><span>● Standby</span>`; d.title = a.tools.join(', '); $('#agent-grid').appendChild(d); agentEls[a.name] = d; }
@@ -129,7 +128,6 @@ $('#s-push-test').onclick = async () => { const r = await api('/api/push/test', 
 
 /* ---------------- drawers: knowledge & files */
 const drawer = $('#drawer'); $('#drawer-close').onclick = () => drawer.classList.add('hidden');
-$('#btn-knowledge').onclick = async () => { const rows = await api('/api/knowledge'); $('#drawer-title').textContent = 'KNOWLEDGE BASE'; $('#drawer-body').innerHTML = rows.map(r => `<div class="lesson"><b>${r.topic}</b> — ${r.lesson} <small class="muted">${r.ts}</small><br>${r.content}…</div>`).join('') || '<div class="muted">Nothing learned yet.</div>'; drawer.classList.remove('hidden'); };
 $('#btn-providers').onclick = () => openSettings();
 async function openFiles() { const s = await api('/api/status'); $('#drawer-title').textContent = 'FABRICATED FILES'; $('#drawer-body').innerHTML = s.files.map(f => `<div class="lesson"><b>${f.name}</b> · ${f.size} bytes <a class="more" style="display:inline" href="/api/files/${encodeURIComponent(f.name)}?token=${encodeURIComponent(TOKEN)}">⬇ download</a></div>`).join('') || '<div class="muted">No files yet — ask J.A.R.V.I.S. to make one.</div>'; drawer.classList.remove('hidden'); }
 
@@ -154,7 +152,8 @@ function openCall(){
   $('#call').classList.remove('hidden'); call.open = true;
   $('#call-status').textContent = 'listening';
   $('#call-caption').innerHTML = `<span class="you">Say something — ${window.AI_NAME} is listening…</span>`;
-  startOrbMic(); callListen();
+  startOrbMic();
+  if (window.Listener && window.Listener.on) { $('#call-status').textContent = 'listening'; } else { callListen(); }
   speak('Online, sir. How may I help?');
 }
 function endCall(){
@@ -165,6 +164,8 @@ function endCall(){
   speechSynthesis.cancel();
 }
 $('#qc-call') && ($('#qc-call').onclick = openCall);
+window.openCall = openCall; window.endCall = endCall;
+window.callSubmit = function(t){ if (!call.open) openCall(); callSend(t); };
 $('#call-end').onclick = endCall;
 $('#call-mute').onclick = () => { call.muted = !call.muted; $('#call-mute').classList.toggle('muted', call.muted); $('#call-mute').textContent = call.muted ? '🔇' : '🎙️'; };
 

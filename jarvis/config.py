@@ -28,6 +28,9 @@ DEFAULTS = {
     "timezone": "Asia/Muscat",
     "briefing_hour": 8,                 # daily proactive briefing (local hour), -1 to disable
     "voice_name": "en-GB",
+    "tts_voice": "en-GB-RyanNeural",   # edge-tts voice used by Discord and optional web speech
+    "wake_word": "osama",
+    "sleep_phrase": "all done sleep",
     "max_tool_steps": 4,
 }
 

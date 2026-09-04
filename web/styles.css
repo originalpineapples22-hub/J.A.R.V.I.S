@@ -131,3 +131,6 @@ button.icon{background:rgba(9,18,42,.8);border:1px solid var(--line2);border-rad
 #holo-hint{font-size:12px;letter-spacing:2px;color:var(--dim)}
 .holo-controls{position:absolute;bottom:4vh;left:0;right:0;display:flex;justify-content:center;gap:26px;z-index:3}
 .holo-status{position:absolute;bottom:14vh;left:0;right:0;text-align:center;color:var(--cyan);font-size:13px;letter-spacing:2px;z-index:2}
+.listen-meter{height:4px;background:rgba(63,169,255,.12);border-radius:2px;overflow:hidden;margin:4px 0}
+#listen-bar{height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--cyan));transition:width .08s}
+body.listening #mic{box-shadow:0 0 26px rgba(56,230,255,.7)}

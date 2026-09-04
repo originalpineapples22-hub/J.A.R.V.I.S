@@ -39,8 +39,11 @@
       <div class="vs-label">VOICE STATUS <span id="ear-chip" class="chip off">EAR OFF</span></div>
       <div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div id="voice-state">Tap to talk</div>
+      <div class="listen-meter"><div id="listen-bar"></div></div>
+      <div id="listen-state" class="muted" style="text-align:center;font-size:10px">off</div>
+      <div id="listen-heard" class="muted" style="text-align:center;font-size:10px;min-height:1.2em"></div>
       <button id="mic" title="Tap to talk">🎤</button>
-      <label class="switch"><input type="checkbox" id="always-listen"> Always listen ("Jarvis, …")</label>
+      <label class="switch"><input type="checkbox" id="always-listen"> Always on — say “OSAMA”</label>
     </div>
   </aside>
 
@@ -155,13 +158,11 @@
           <svg id="spark" viewBox="0 0 200 60" preserveAspectRatio="none"><polyline id="spark-line" fill="none" stroke="#5fb8ff" stroke-width="2" points=""/></svg>
           <div class="mem-stats">
             <div><b id="m-memories">0</b><span>Memories</span></div>
-            <div><b id="m-lessons">0</b><span>Lessons</span></div>
-            <div><b id="m-skills">0</b><span>Skills</span></div>
+            <div><b id="m-tasks">0</b><span>Tasks</span></div>
+            <div><b id="m-files">0</b><span>Files</span></div>
             <div><b id="m-turns">0</b><span>Session Turns</span></div>
           </div>
         </div>
-        <div id="skill-list" class="skill-list"></div>
-        <a class="more" id="btn-knowledge">View Knowledge Base ›</a>
       </div>
 
       <!-- LLM STATUS -->
@@ -242,5 +243,6 @@
 </div>
 <script src="/static/app.js"></script>
 <script src="/static/holo.js"></script>
+<script src="/static/listen.js"></script>
 </body>
 </html>
