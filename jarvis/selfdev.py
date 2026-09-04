@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import memory, brain
+from .loopguard import (error_signature, describe_error, note_repair_attempt, give_up,
+                        clear_fingerprint, repair_attempts)
 from .config import ROOT, DATA_DIR
 
 PKG = ROOT / "jarvis"
@@ -175,22 +177,42 @@ async def diagnose() -> str:
     return "\n".join(lines)
 
 
-async def auto_repair() -> str:
-    """Try to fix the most recent recorded fault, entirely unprompted."""
+async def auto_repair(force: bool = False) -> str:
+    """Try to fix the most recent recorded fault, unprompted — but never loop:
+    a fault that has already defeated two automatic repairs is escalated to the
+    operator with a precise report instead of being retried forever."""
     errs = recent_errors(1)
     if not errs:
         return "Nothing to repair — no faults recorded, sir."
     e = errs[0]
     trace = e.get("trace", "")
-    import re
-    files = re.findall(r'File "([^"]+jarvis[/\\][^"]+\.py)"', trace)
+    fp = error_signature(trace or f"{e['type']}: {e['message']}")
+    d = describe_error(trace)
+
+    if give_up(fp) and not force:
+        return ("⚠️ I have already tried twice to repair this fault and it keeps coming back, "
+                "so I have stopped rather than loop.\n\n"
+                f"**Fault:** {e['type']}: {e['message'][:200]}\n"
+                f"**Where:** {d['where'] or e.get('where', 'unknown')}\n"
+                f"**Tried:** {repair_attempts(fp)} automatic repairs, all verified and rolled back\n\n"
+                "This one needs a decision from you, sir — most likely a missing dependency, a "
+                "credential, or a design assumption I cannot change on my own.")
+
+    import re as _re
+    files = _re.findall(r'File "([^"]+jarvis[/\\][^"]+\.py)"', trace)
     if not files:
-        return f"I recorded a fault ({e['type']}: {e['message'][:120]}) but it is not in my own code, so I will not patch anything."
+        note_repair_attempt(fp, "fault outside own code")
+        return (f"I recorded a fault ({e['type']}: {e['message'][:120]}) but it is not in my own code, "
+                f"so I will not patch anything.\n**Where:** {d['where'] or 'external'}")
     target = Path(files[-1])
     rel = str(target).split("jarvis" + ("\\" if "\\" in str(target) else "/"), 1)[-1]
+    n = note_repair_attempt(fp, f"{rel}: {e['type']}")
     instruction = (f"Fix this runtime fault so it cannot happen again, handling the edge case defensively:\n"
                    f"{e['type']}: {e['message']}\n\nTRACEBACK:\n{trace[-1200:]}")
     result = await propose_and_apply(rel, instruction, apply=True)
     if "applied" in result:
         clear_errors()
-    return f"Auto-repair on {rel}:\n{result}"
+        clear_fingerprint(fp)
+        return f"Auto-repair on {rel} (attempt {n}):\n{result}"
+    return (f"Auto-repair attempt {n} on {rel} did not hold — I rolled myself back.\n"
+            f"**Where:** {d['where']}\n**Error:** {d['type']}: {d['message'][:200]}\n\n{result[-400:]}")

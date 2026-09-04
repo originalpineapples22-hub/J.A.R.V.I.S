@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from . import tool
 from .. import memory, brain, selfdev, curriculum
+from ..loopguard import LoopGuard
 from ..config import FILES_DIR
 
 LANG = {
@@ -58,25 +59,32 @@ async def write_and_test_code(args, ctx):
     if m:
         code = m.group(1)
     path = FILES_DIR / name
-    log = []
-    for attempt in range(1, 5):
+    guard = LoopGuard(max_attempts=4, label=f"`{name}`")
+    out = ""
+    while True:
         path.write_text(code.rstrip() + "\n", encoding="utf-8")
         ok, out = await asyncio.to_thread(_run, path, cmd)
-        log.append(f"attempt {attempt}: {'PASS' if ok else 'FAIL'}")
         if ok:
-            memory.add_event("file", f"{name} written and verified in {attempt} attempt(s)")
-            return (f"`{name}` works — verified by actually running it ({attempt} attempt"
-                    f"{'s' if attempt > 1 else ''}).\n\nOutput:\n{out[:900]}\n\nDownload it from Files.")
+            memory.add_event("file", f"{name} written and verified in {guard.attempts + 1} attempt(s)")
+            return (f"`{name}` works — verified by actually running it "
+                    f"({guard.attempts + 1} attempt{'s' if guard.attempts else ''}).\n\n"
+                    f"Output:\n{out[:900]}\n\nDownload it from Files.")
+        # not working — is this going in circles?
+        stall = guard.track(code, out)
+        if stall:
+            memory.add_event("alert", f"Coding loop stopped on {name}: {stall}")
+            return guard.report(stall, extra=f"The file is saved as `{name}` so you can inspect it.\n\nLast output:\n```\n{out[:700]}\n```")
         fix = (f"This {lang} program must: {spec}\n\nIt failed when run:\n{out}\n\n"
-               f"CURRENT CODE:\n```\n{code}\n```\n\nReturn the COMPLETE corrected program only, in one code fence.")
+               f"CURRENT CODE:\n```\n{code}\n```\n\n"
+               "Return the COMPLETE corrected program only, in one code fence. "
+               "If the failure is caused by something outside the code (missing package, "
+               "missing file, permissions), say so in a comment on the first line instead of guessing.")
         try:
             draft = await brain.complete([{"role": "user", "content": fix}], temperature=0.1, timeout=240)
         except Exception as e:
             return f"Could not repair the code: {e}"
         m = re.search(r"```(?:\w+)?\s*(.*?)```", draft, re.DOTALL)
         code = (m.group(1) if m else draft).strip()
-    return (f"`{name}` still fails after 4 self-repair attempts. Last error:\n{out[:900]}\n"
-            "The file is saved so you can look at it, sir.")
 
 
 @tool("review_code", "Review code for bugs, security issues and improvements, and return a corrected version.",
@@ -111,9 +119,12 @@ async def improve_self(args, ctx):
     return await selfdev.propose_and_apply(args.get("file", ""), args.get("instruction", ""), apply=True)
 
 
-@tool("auto_repair", "Fix the most recent fault in your own code, unprompted, with automatic rollback if the fix is bad.", {}, agent="System Agent")
+@tool("auto_repair",
+      "Fix the most recent fault in your own code, with automatic rollback if the fix is bad. Stops and reports instead of looping if the same fault resists repair; pass force=true to try again after the operator has changed something.",
+      {"force": "optional true to retry a fault that was previously escalated"}, agent="System Agent")
 async def auto_repair(args, ctx):
-    return await selfdev.auto_repair()
+    force = str(args.get("force", "")).lower() in ("true", "1", "yes")
+    return await selfdev.auto_repair(force=force)
 
 
 @tool("learning_progress", "How much of your built-in technology curriculum you have mastered, and what you are studying next.", {}, agent="Research Agent")

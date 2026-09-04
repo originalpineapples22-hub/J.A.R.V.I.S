@@ -37,6 +37,11 @@ async def loop():
                 _last_repair = time.time()
                 res = await selfdev.auto_repair()
                 memory.add_event("system", f"Auto-repair: {res[:160]}")
+                if res.startswith("⚠️"):
+                    # it got stuck repairing itself — tell the operator, do not keep trying
+                    memory.add_message("web", "assistant", res)
+                    await notify_all("0.5.4.M.4 needs you",
+                                     "I could not repair a fault on my own — details are in the command centre.")
 
             m = system_metrics()
             import time
