@@ -126,6 +126,7 @@
           <button data-cmd="Give me a status report and my open tasks.">＋ Status Report</button>
           <button data-cmd="What is on my agenda and which reminders are coming up?">▦ Open Calendar</button>
           <button id="qc-call">☎ Call 0.5.4.M.4</button>
+          <button id="qc-holo">✋ Hologram (hand control)</button>
           <button id="qc-voice">♫ Start Voice Chat</button>
           <button id="qc-learn">▶ Study a Topic</button>
           <button data-cmd="Make me a 6-slide PowerPoint presentation about a topic of my choice — ask me the topic first.">▣ Make a Presentation</button>
@@ -210,6 +211,18 @@
 </div>
 
 
+
+<!-- ============ HOLOGRAM MODE (webcam hand tracking) ============ -->
+<div id="holo" class="holo hidden">
+  <video id="holo-cam" playsinline muted></video>
+  <canvas id="holo-canvas"></canvas>
+  <div class="holo-top"><span id="holo-name">0.5.4.M.4</span><span id="holo-hint">Show both hands · spread to grow the core · pinch to pulse</span></div>
+  <div class="holo-controls">
+    <button id="holo-talk" class="cc" title="Ask by voice">🎙️</button>
+    <button id="holo-end" class="cc end" title="Close">✕</button>
+  </div>
+  <div id="holo-status" class="holo-status">initialising vision…</div>
+</div>
 <!-- ============ CALL MODE (full-screen voice) ============ -->
 <div id="call" class="call hidden">
   <div class="call-top"><span id="call-name">0.5.4.M.4</span><span id="call-status">connecting…</span></div>
@@ -226,5 +239,6 @@
   </div>
 </div>
 <script src="/static/app.js"></script>
+<script src="/static/holo.js"></script>
 </body>
 </html>

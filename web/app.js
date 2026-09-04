@@ -1,7 +1,7 @@
 /* J.A.R.V.I.S. Command Center — single-screen client */
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const store = {get: k => { try { return localStorage.getItem(k); } catch (_) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} }};
-let TOKEN = store.get('jarvis_token') || '';
+let TOKEN = store.get('jarvis_token') || ''; window.TOKEN = TOKEN;
 const H = () => ({'Content-Type': 'application/json', 'X-JARVIS-TOKEN': TOKEN});
 const api = async (path, opts = {}) => { const r = await fetch(path, Object.assign({headers: H()}, opts)); if (r.status === 401) { openSettings('Enter your access token to authenticate.'); throw new Error('unauthorized'); } return r.json(); };
 
@@ -9,6 +9,7 @@ const api = async (path, opts = {}) => { const r = await fetch(path, Object.assi
 setInterval(() => { const d = new Date(); $('#time').textContent = d.toLocaleTimeString('en-GB'); $('#date').textContent = d.toLocaleDateString('en-GB', {weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'}); }, 1000);
 
 /* ---------------- speech out */
+window.speak = function(t){ return speak(t); };
 function speak(text) {
   if (!('speechSynthesis' in window) || !text) return;
   const clean = text.replace(/```[\s\S]*?```/g, ' code omitted ').replace(/[*_#`>\[\]|]/g, '').slice(0, 600);
@@ -106,7 +107,7 @@ const modal = $('#modal');
 function openSettings(msg) { modal.classList.remove('hidden'); $('#s-msg').textContent = msg || ''; $('#s-token').value = TOKEN; if (TOKEN) loadSettings(); }
 async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour; const sel = $('#s-groq-model'); sel.innerHTML = '<option value="">Auto (best available)</option>' + (s.groq_models || []).map(m => `<option ${m === s.groq_model ? 'selected' : ''}>${m}</option>`).join(''); } catch (_) {} }
 $('#btn-settings').onclick = () => openSettings(); $('#modal-close').onclick = () => modal.classList.add('hidden');
-$('#s-save').onclick = async () => { TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN);
+$('#s-save').onclick = async () => { TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
   try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8')})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = 'Could not save — check the token.'; } };
 
 /* ---------------- push notifications (iPhone: install to Home Screen first) */
