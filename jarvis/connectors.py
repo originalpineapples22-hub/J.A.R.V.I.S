@@ -1,86 +1,144 @@
 # -*- coding: utf-8 -*-
-"""Connector catalog + Capability Index. Each connector adds 'IQ' points (a
-playful capability score, not a clinical IQ). 'live' = works now (no login);
-'oauth'/'key' = ready to activate once its credential is added after deploy."""
+"""Capability Index — an honest 1000-point scale.
+
+The score is a capability meter, not a clinical IQ. It is weighted by real
+impact across seven dimensions, and the single largest factor is the quality of
+the underlying brain, because that is what actually determines how well it
+thinks. 1000 is only reachable with every connector linked AND a frontier model.
+"""
 from .config import load_settings
 
-BASE_IQ = 100  # baseline cognition of the brain itself
+# dimension -> maximum points (sums to 1000)
+DIMENSIONS = {
+    "Reasoning":  260,   # brain quality + deliberation + exact computation
+    "Knowledge":  150,
+    "Memory":     130,
+    "Creation":   140,
+    "Action":     140,
+    "Perception": 100,
+    "Autonomy":    80,
+}
 
+# id, name, dimension, points, auth, note
 CATALOG = [
-    # id, name, category, iq, auth, note
-    ("weather",     "Weather",          "Live Data",     6,  "live",  "Forecasts (Open-Meteo, no key)"),
-    ("prayer",      "Prayer Times",     "Live Data",     4,  "live",  "Accurate times for your city (Aladhan)"),
-    ("news",        "World News",       "Live Data",     6,  "live",  "Top headlines"),
-    ("dictionary",  "Dictionary",       "Live Data",     3,  "live",  "Definitions & synonyms"),
-    ("currency",    "Currency & Crypto","Live Data",     5,  "live",  "FX + crypto prices"),
-    ("worldtime",   "World Clock",      "Live Data",     2,  "live",  "Time in any city"),
-    ("wikipedia",   "Wikipedia",        "Knowledge",     6,  "live",  "Encyclopedia lookup"),
-    ("websearch",   "Web Search",       "Knowledge",     8,  "live",  "Search the whole web"),
-    ("youtube",     "YouTube",          "Knowledge",     6,  "live",  "Answer questions about videos"),
-    ("science",     "Science Sandbox",  "Reasoning",    10,  "live",  "Physics, chemistry, symbolic math"),
-    ("inventor",    "Inventor Mode",    "Reasoning",    12,  "live",  "Design what nobody has built"),
-    ("office",      "Office Suite",     "Creation",      8,  "live",  "PowerPoint, Word, Excel"),
-    ("coder",       "Code Fabricator",  "Creation",      9,  "live",  "Write & sandbox-test programs"),
-    ("learn",       "Self-Learning",    "Reasoning",    10,  "live",  "Master any tech in minutes"),
-    ("memory",      "Long-Term Memory", "Core",          8,  "live",  "Remembers everything, forever"),
-    ("selfdev",     "Self-Development", "Core",         14,  "live",  "Reads & fixes its own code, auto-rollback"),
-    ("rag",         "Semantic Memory",  "Core",         10,  "live",  "Recall by meaning, not keywords (vector RAG)"),
-    ("tavily",      "Tavily Research",  "Knowledge",     8,  "key",   "Agent-grade search: synthesised answers"),
-    ("wolfram",     "Wolfram Alpha",    "Reasoning",     9,  "key",   "Mathematically exact computation"),
-    ("elevenlabs",  "ElevenLabs Voice", "Perception",    6,  "key",   "Cinematic, human-quality speech"),
-    ("browser",     "Autonomous Browser","Control",      8,  "live",  "Reads JS-heavy sites via a real browser"),
-    ("webhooks",    "Automation Hooks", "Control",       6,  "key",   "Make.com / Zapier / n8n triggers"),
-    ("autolearn",   "Autonomous Study", "Core",         12,  "live",  "Learns 109 technologies by itself"),
-    ("codeloop",    "Self-Fixing Coder","Creation",     11,  "live",  "Writes, runs, debugs and repairs its own code"),
-    ("pc",          "PC Control",       "Control",       7,  "agent", "Drive your PC (needs PC agent)"),
-    ("vision",      "Screen/Cam Vision","Perception",    7,  "live",  "See screen & webcam"),
-    # activate after deploy + credential
-    ("gmail",       "Gmail",            "Google",        9,  "oauth", "Read, summarise, draft & send"),
-    ("gcalendar",   "Google Calendar",  "Google",        7,  "oauth", "Agenda, events, reminders"),
-    ("gdrive",      "Google Drive/Docs","Google",        6,  "oauth", "Read & create documents"),
-    ("gtasks",      "Google Tasks",     "Google",        3,  "oauth", "Sync to-dos"),
-    ("ytmusic",     "YouTube Music",    "Media",         5,  "live",  "Play any song or playlist by voice"),
-    ("discord",     "Discord",          "Messaging",     7,  "key",   "Chat + voice calls with 0.5.4.M.4"),
-    ("notion",      "Notion",           "Productivity",  6,  "key",   "Your notes & databases"),
-    ("github",      "GitHub",           "Productivity",  6,  "key",   "Repos, issues, notifications"),
-    ("maps",        "Google Maps",      "Live Data",     4,  "key",   "Travel time, 'when to leave'"),
-    ("stocks",      "Stocks",           "Live Data",     4,  "key",   "Market quotes & watchlist"),
-    ("smarthome",   "Home Assistant",   "Control",       8,  "key",   "Lights, plugs, climate, sensors"),
-    ("email_imap",  "Any Email (IMAP)", "Messaging",     6,  "key",   "Non-Google inboxes"),
-    ("translate",   "Translator",       "Live Data",     4,  "live",  "Any language, both ways"),
+    # --- Reasoning (brain tier is scored separately, worth up to 150 here)
+    ("council",     "Council (multi-agent)",  "Reasoning",  30, "live", "Specialists reason in parallel, a critic verifies"),
+    ("verifier",    "Self-Verification",      "Reasoning",  15, "live", "Checks its own answers before delivering"),
+    ("science",     "Science Sandbox",        "Reasoning",  20, "live", "Physics, chemistry, symbolic maths"),
+    ("inventor",    "Inventor Mode",          "Reasoning",  25, "live", "Designs what has not been built"),
+    ("wolfram",     "Wolfram Alpha",          "Reasoning",  20, "key",  "Mathematically exact computation"),
+    # --- Knowledge
+    ("websearch",   "Web Search",             "Knowledge",  20, "live", "Search the open web"),
+    ("tavily",      "Tavily Research",        "Knowledge",  25, "key",  "Synthesised, sourced answers"),
+    ("wikipedia",   "Wikipedia",              "Knowledge",  10, "live", "Encyclopedia"),
+    ("youtube",     "YouTube",                "Knowledge",  15, "live", "Understands any video"),
+    ("livedata",    "Live Data",              "Knowledge",  20, "live", "Weather, news, prayer, FX, crypto, time"),
+    ("curriculum",  "109-Tech Curriculum",    "Knowledge",  30, "live", "Built-in mastery path for 109 technologies"),
+    ("translate",   "Translator",             "Knowledge",  10, "live", "Any language"),
+    ("maps",        "Google Maps",            "Knowledge",  10, "key",  "Places, routes, travel time"),
+    ("stocks",      "Markets",                "Knowledge",  10, "key",  "Quotes and watchlists"),
+    # --- Memory
+    ("memory",      "Long-Term Memory",       "Memory",     35, "live", "Never forgets, across restarts"),
+    ("rag",         "Semantic Memory (RAG)",  "Memory",     40, "live", "Recall by meaning, not keywords"),
+    ("summaries",   "Rolling Summaries",      "Memory",     20, "live", "Keeps the thread of long conversations"),
+    ("notion",      "Notion",                 "Memory",     20, "key",  "Your notes and databases"),
+    ("gdrive",      "Google Drive/Docs",      "Memory",     15, "oauth","Your documents"),
+    # --- Creation
+    ("coder",       "Code Fabricator",        "Creation",   25, "live", "Writes real, runnable programs"),
+    ("codeloop",    "Self-Fixing Coder",      "Creation",   30, "live", "Runs, debugs and repairs its own code"),
+    ("office",      "Office Suite",           "Creation",   25, "live", "PowerPoint, Word, Excel"),
+    ("files",       "File Fabrication",       "Creation",   15, "live", "Any file, downloadable"),
+    ("music",       "YouTube Music",          "Creation",   10, "live", "Plays anything by voice"),
+    ("github",      "GitHub",                 "Creation",   20, "key",  "Repos, issues, pull requests"),
+    ("threed",      "3D / CAD Generation",    "Creation",   15, "live", "Parametric models for printing"),
+    # --- Action
+    ("pc",          "PC Control",             "Action",     25, "agent","Drives your computer"),
+    ("browser",     "Autonomous Browser",     "Action",     25, "live", "Real Chromium for any site"),
+    ("smarthome",   "Home Assistant",         "Action",     25, "key",  "Lights, plugs, climate, sensors"),
+    ("webhooks",    "Automation Hooks",       "Action",     20, "key",  "Make / Zapier / n8n"),
+    ("gmail",       "Gmail",                  "Action",     20, "oauth","Read, summarise, send"),
+    ("gcalendar",   "Google Calendar",        "Action",     15, "oauth","Agenda and events"),
+    ("discord",     "Discord",                "Action",     10, "key",  "Chat and voice calls"),
+    # --- Perception
+    ("voice_in",    "Whisper Hearing",        "Perception", 25, "live", "Accurate speech, no invented words"),
+    ("voice_out",   "Natural Speech",         "Perception", 15, "live", "Speaks back"),
+    ("elevenlabs",  "ElevenLabs Voice",       "Perception", 15, "key",  "Cinematic, cloneable voice"),
+    ("vision",      "Vision",                 "Perception", 25, "live", "Sees screens, photos, documents"),
+    ("hologram",    "Hand Tracking",          "Perception", 20, "live", "Hologram mode with hand control"),
+    # --- Autonomy
+    ("selfdev",     "Self-Development",       "Autonomy",   30, "live", "Fixes its own code, auto-rollback"),
+    ("autolearn",   "Autonomous Study",       "Autonomy",   25, "live", "Learns by itself, unprompted"),
+    ("proactive",   "Proactive Agent",        "Autonomy",   25, "live", "Reminders, briefings, alerts it starts"),
 ]
 
-# which live connectors are considered active (their tools are always available)
-_LIVE_ACTIVE = {c[0] for c in CATALOG if c[4] == "live"}
+# Brain tiers — the largest single factor in real intelligence (max 110 of Reasoning)
+BRAIN_TIERS = [
+    (150, ("claude", "opus", "sonnet", "gpt-5", "gpt-4.1", "o3", "gemini-2.5-pro", "grok-4")),
+    (100, ("gpt-4o", "70b", "llama-4", "large", "qwen3-32b", "command-r-plus", "deepseek")),
+    (65,  ("8b", "mini", "flash", "small", "instant", "gemma", "mistral")),
+]
+BRAIN_MAX = 150
+
+
+def _brain_points(s) -> tuple:
+    prov = s.get("provider", "groq")
+    model = (s.get("groq_model") or s.get("openai_model") or s.get("ollama_model") or "").lower()
+    if not (s.get("groq_api_key") or s.get("openai_api_key") or prov == "ollama"):
+        return 0, "no brain configured"
+    for pts, keys in BRAIN_TIERS:
+        if any(k in model for k in keys):
+            return pts, model or prov
+    return 65, model or prov
 
 
 def _credential_present(cid, s):
     m = {
-        "gmail": "google_token", "gcalendar": "google_token", "gdrive": "google_token", "gtasks": "google_token",
-        "discord": "discord_bot_token", "notion": "notion_key",
-        "github": "github_token", "maps": "google_maps_key", "stocks": "stocks_key",
-        "smarthome": "homeassistant_token", "tavily": "tavily_key", "wolfram": "wolfram_appid", "elevenlabs": "elevenlabs_key", "webhooks": "webhooks", "email_imap": "imap_password",
+        "gmail": "google_token", "gcalendar": "google_token", "gdrive": "google_token",
+        "discord": "discord_bot_token", "notion": "notion_key", "github": "github_token",
+        "maps": "google_maps_key", "stocks": "stocks_key", "smarthome": "homeassistant_token",
+        "tavily": "tavily_key", "wolfram": "wolfram_appid", "elevenlabs": "elevenlabs_key",
+        "webhooks": "webhooks",
     }
     key = m.get(cid)
-    return bool(key and s.get(key))
+    if not key:
+        return False
+    v = s.get(key)
+    return bool(v) and v not in ("{}", "")
 
 
 def status():
     s = load_settings()
     from .tools.pc import pc_connected
-    items, active_iq = [], 0
-    for cid, name, cat, iq, auth, note in CATALOG:
+    items, dims = [], {d: {"earned": 0, "max": m} for d, m in DIMENSIONS.items()}
+
+    brain_pts, brain_name = _brain_points(s)
+    dims["Reasoning"]["earned"] += brain_pts
+
+    for cid, name, dim, pts, auth, note in CATALOG:
         if auth == "live":
-            active = cid in _LIVE_ACTIVE
+            active = True
         elif auth == "agent":
             active = pc_connected()
         else:
             active = _credential_present(cid, s)
+        # semantic memory only counts when an embedding backend exists
+        if cid == "rag":
+            try:
+                from . import rag
+                active = rag.available()
+            except Exception:
+                active = False
         if active:
-            active_iq += iq
-        items.append({"id": cid, "name": name, "category": cat, "iq": iq, "auth": auth, "note": note, "active": active})
-    total = BASE_IQ + active_iq
-    potential = BASE_IQ + sum(c[3] for c in CATALOG)
-    return {"base": BASE_IQ, "index": total, "potential": potential,
-            "active_count": sum(1 for i in items if i["active"]), "total_count": len(items),
-            "connectors": items}
+            dims[dim]["earned"] += pts
+        items.append({"id": cid, "name": name, "category": dim, "iq": pts, "auth": auth,
+                      "note": note, "active": active})
+
+    index = sum(d["earned"] for d in dims.values())
+    return {
+        "index": index, "potential": 1000, "scale": 1000,
+        "brain": {"points": brain_pts, "max": BRAIN_MAX, "model": brain_name},
+        "dimensions": dims,
+        "active_count": sum(1 for i in items if i["active"]),
+        "total_count": len(items),
+        "connectors": items,
+    }

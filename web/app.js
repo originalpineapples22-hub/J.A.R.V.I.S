@@ -98,7 +98,7 @@ async function refresh() {
   $('#c-voice').textContent = s.pc_online ? 'Browser + PC ear' : 'Browser';
   if (s.curriculum) { const cu = s.curriculum; const el = $('#c-study');
     if (el) el.textContent = cu.current ? `studying ${cu.current} · ${cu.learned}/${cu.total}` : `${cu.learned}/${cu.total} mastered (${cu.percent}%)`; }
-  if (s.capability) { const cap = s.capability; $('#c-iq').textContent = `${cap.index} IQ · ${cap.active_count}/${cap.total_count} apps`; window.CAP = cap; }
+  if (s.capability) { const cap = s.capability; $('#c-iq').textContent = `${cap.index}/1000 · ${cap.active_count}/${cap.total_count} systems`; window.CAP = cap; }
 }
 async function doneTask(id) { await api(`/api/tasks/${id}/done`, {method: 'POST'}); refresh(); }
 $('#task-form').addEventListener('submit', async e => { e.preventDefault(); const v = $('#task-input').value.trim(); if (!v) return; await api('/api/tasks', {method: 'POST', body: JSON.stringify({title: v})}); $('#task-input').value = ''; refresh(); });
@@ -241,21 +241,30 @@ function callDone(){ call.speaking=false; $('#orb').classList.remove('speaking')
 
 $('#qc-connectors') && ($('#qc-connectors').onclick = async () => {
   const cap = await api('/api/connectors');
+  const pct = Math.round(cap.index / 10);
+  let html = `<div class="lesson"><b style="font-size:1.3em">Capability Index ${cap.index} / 1000</b>
+    <div class="bar" style="height:10px;border:1px solid var(--line2);border-radius:5px;margin:8px 0;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--acc),var(--cyan))"></div></div>
+    <small class="muted">Brain: ${cap.brain.model} — ${cap.brain.points}/${cap.brain.max} pts. A frontier model is the single biggest gain available.</small></div>`;
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0">' + Object.entries(cap.dimensions).map(([d, v]) => {
+    const p = Math.round(v.earned / v.max * 100);
+    return `<div class="lesson" style="flex:1 1 150px;margin:0"><b>${d}</b> <span class="skill" style="float:right">${v.earned}/${v.max}</span>
+      <div class="bar" style="height:6px;border:1px solid var(--line);border-radius:3px;margin-top:6px;overflow:hidden">
+      <div style="height:100%;width:${p}%;background:${p>75?'var(--ok)':p>40?'var(--cyan)':'var(--warn)'}"></div></div></div>`;
+  }).join('') + '</div>';
   const cats = {};
   cap.connectors.forEach(c => { (cats[c.category] = cats[c.category] || []).push(c); });
-  const authLabel = {live:'ready', agent:'needs PC agent', oauth:'needs sign-in', key:'needs API key'};
-  let html = `<div class="lesson"><b>Capability Index: ${cap.index} IQ</b> &nbsp; <span class="muted">(base ${cap.base} + ${cap.index-cap.base} from ${cap.active_count} active apps · potential ${cap.potential})</span>
-    <div class="bar" style="height:8px;border:1px solid var(--line2);border-radius:4px;margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.round((cap.index-cap.base)/(cap.potential-cap.base)*100)}%;background:linear-gradient(90deg,var(--acc),var(--cyan))"></div></div></div>`;
+  const lbl = {live:'ready', agent:'needs PC agent', oauth:'needs sign-in', key:'needs key'};
   for (const [cat, list] of Object.entries(cats)) {
     html += `<div style="margin:10px 0 4px;color:#bfe3ff;font-family:Orbitron;font-size:11px;letter-spacing:2px">${cat.toUpperCase()}</div>`;
     html += '<div style="display:flex;flex-wrap:wrap;gap:6px">' + list.map(c =>
-      `<div class="lesson" style="flex:1 1 220px;margin:0;border-color:${c.active?'var(--ok)':'var(--line)'}">
-        <b>${c.name}</b> <span class="skill" style="float:right">+${c.iq} IQ</span><br>
+      `<div class="lesson" style="flex:1 1 210px;margin:0;border-color:${c.active?'var(--ok)':'var(--line)'}">
+        <b>${c.name}</b> <span class="skill" style="float:right">+${c.iq}</span><br>
         <small class="muted">${c.note}</small><br>
-        <span class="chip ${c.active?'':'off'}" style="margin-top:4px">${c.active?'● ACTIVE':'○ '+authLabel[c.auth]}</span>
+        <span class="chip ${c.active?'':'off'}" style="margin-top:4px">${c.active?'● ACTIVE':'○ '+lbl[c.auth]}</span>
       </div>`).join('') + '</div>';
   }
-  $('#drawer-title').textContent = 'CONNECTORS & CAPABILITY INDEX';
+  $('#drawer-title').textContent = 'CAPABILITY INDEX';
   $('#drawer-body').innerHTML = html; $('#drawer').classList.remove('hidden');
 });
 
