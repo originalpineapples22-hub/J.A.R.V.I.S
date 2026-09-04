@@ -13,6 +13,7 @@ from .config import load_settings, save_settings, operator_token, ROOT, FILES_DI
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
 from .tools import agents_status
+from . import connectors
 from .tools.system import system_metrics, local_now
 from .tools.files import list_files
 from .tools import pc as pc_tools
@@ -78,6 +79,7 @@ async def status():
         "pc_online": pc_tools.pc_connected(),
         "files": list_files()[:8],
         "push_subs": len(memory.push_subs()),
+        "capability": connectors.status(),
     }
 
 
@@ -174,6 +176,11 @@ async def post_settings(req: Request):
 async def learn(req: Request):
     d = await req.json()
     return {"started": learning.start_study(d.get("topic", "").strip())}
+
+
+@app.get("/api/connectors", dependencies=[Depends(auth)])
+async def get_connectors():
+    return connectors.status()
 
 
 @app.get("/api/knowledge", dependencies=[Depends(auth)])

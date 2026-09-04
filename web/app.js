@@ -97,6 +97,7 @@ async function refresh() {
   $('#llm-grid').innerHTML = tiles.map(([n, v], i) => `<div class="llm ${v.connected ? 'on' : ''} ${p.active === ['groq', 'openai', 'ollama'][i] ? 'active' : ''}"><b>${n}</b><span>${v.connected ? 'Connected' : 'Not linked'}${v.model ? ' · ' + v.model : ''}</span></div>`).join('');
   $('#llm-count').textContent = tiles.filter(([, v]) => v.connected).length + ' Connected'; $('#c-llm').textContent = (p[p.active] && p[p.active].model) || p.active;
   $('#c-voice').textContent = s.pc_online ? 'Browser + PC ear' : 'Browser';
+  if (s.capability) { const cap = s.capability; $('#c-iq').textContent = `${cap.index} IQ · ${cap.active_count}/${cap.total_count} apps`; window.CAP = cap; }
 }
 async function doneTask(id) { await api(`/api/tasks/${id}/done`, {method: 'POST'}); refresh(); }
 $('#task-form').addEventListener('submit', async e => { e.preventDefault(); const v = $('#task-input').value.trim(); if (!v) return; await api('/api/tasks', {method: 'POST', body: JSON.stringify({title: v})}); $('#task-input').value = ''; refresh(); });
@@ -225,6 +226,27 @@ function callSpeak(text){
   speechSynthesis.cancel(); speechSynthesis.speak(u);
 }
 function callDone(){ call.speaking=false; $('#orb').classList.remove('speaking'); if (call.open){ $('#call-status').textContent='listening'; callListen(); } }
+
+
+$('#qc-connectors') && ($('#qc-connectors').onclick = async () => {
+  const cap = await api('/api/connectors');
+  const cats = {};
+  cap.connectors.forEach(c => { (cats[c.category] = cats[c.category] || []).push(c); });
+  const authLabel = {live:'ready', agent:'needs PC agent', oauth:'needs sign-in', key:'needs API key'};
+  let html = `<div class="lesson"><b>Capability Index: ${cap.index} IQ</b> &nbsp; <span class="muted">(base ${cap.base} + ${cap.index-cap.base} from ${cap.active_count} active apps · potential ${cap.potential})</span>
+    <div class="bar" style="height:8px;border:1px solid var(--line2);border-radius:4px;margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.round((cap.index-cap.base)/(cap.potential-cap.base)*100)}%;background:linear-gradient(90deg,var(--acc),var(--cyan))"></div></div></div>`;
+  for (const [cat, list] of Object.entries(cats)) {
+    html += `<div style="margin:10px 0 4px;color:#bfe3ff;font-family:Orbitron;font-size:11px;letter-spacing:2px">${cat.toUpperCase()}</div>`;
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px">' + list.map(c =>
+      `<div class="lesson" style="flex:1 1 220px;margin:0;border-color:${c.active?'var(--ok)':'var(--line)'}">
+        <b>${c.name}</b> <span class="skill" style="float:right">+${c.iq} IQ</span><br>
+        <small class="muted">${c.note}</small><br>
+        <span class="chip ${c.active?'':'off'}" style="margin-top:4px">${c.active?'● ACTIVE':'○ '+authLabel[c.auth]}</span>
+      </div>`).join('') + '</div>';
+  }
+  $('#drawer-title').textContent = 'CONNECTORS & CAPABILITY INDEX';
+  $('#drawer-body').innerHTML = html; $('#drawer').classList.remove('hidden');
+});
 
 /* ---------------- boot */
 (async () => {
