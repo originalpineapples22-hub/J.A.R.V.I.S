@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <title>0.5.4.M.4 Command Center</title>
-<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/styles.css?v=__BUILD__">
 <!-- Fonts are a nicety, never a gate: loaded without blocking the first paint,
      so a slow or unreachable fonts.googleapis.com cannot leave a blank screen. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,7 +25,7 @@
   <aside id="sidebar">
     <div class="brand">
       <div class="brand-orb"></div>
-      <div><div class="brand-name" id="brand-name">JARVIS</div><div class="brand-sub">COMMAND CENTER</div></div>
+      <div><div class="brand-name" id="brand-name">JARVIS</div><div class="brand-sub">COMMAND CENTER</div><div class="brand-sub" id="build" title="Build running in this browser">BUILD __BUILD__</div></div>
     </div>
     <nav id="nav">
       <a data-target="hero" class="active"><i>⌘</i>Command Center</a>
@@ -291,9 +291,9 @@
     <button id="call-end" class="cc end" title="End call">✕</button>
   </div>
 </div>
-<script src="/static/app.js"></script>
-<script src="/static/holo.js"></script>
-<script src="/static/listen.js"></script>
-<script src="/static/identity.js"></script>
+<script src="/static/app.js?v=__BUILD__"></script>
+<script src="/static/holo.js?v=__BUILD__"></script>
+<script src="/static/listen.js?v=__BUILD__"></script>
+<script src="/static/identity.js?v=__BUILD__"></script>
 </body>
 </html>

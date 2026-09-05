@@ -3,10 +3,11 @@
 push notifications, PC-agent relay, Siri-friendly plain-text endpoint."""
 import re
 import json
+import hashlib
 import asyncio
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request, Query, UploadFile, File
-from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
@@ -52,9 +53,27 @@ async def _startup():
 
 
 # ---------------- PWA
+def _build_id() -> str:
+    """Fingerprint of the front-end files.
+
+    Stamped onto every asset URL so a browser cannot keep serving an old app.js
+    after an update — the commonest reason a fix appears not to have worked.
+    Recomputed per request: cheap, and correct the moment a file changes.
+    """
+    h = hashlib.sha1()
+    for f in sorted(WEB.glob("*.js")) + sorted(WEB.glob("*.css")) + [WEB / "index.html"]:
+        try:
+            st = f.stat()
+            h.update(f"{f.name}:{st.st_size}:{st.st_mtime_ns}".encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
 @app.get("/")
 async def index():
-    return FileResponse(WEB / "index.html")
+    html = (WEB / "index.html").read_text(encoding="utf-8").replace("__BUILD__", _build_id())
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/sw.js")
@@ -70,7 +89,8 @@ async def manifest():
 # ---------------- status for panels
 @app.get("/api/health")
 async def health():
-    return {"status": "online", "version": __version__, "time": local_now().isoformat()}
+    return {"status": "online", "version": __version__, "build": _build_id(),
+            "time": local_now().isoformat()}
 
 
 @app.get("/api/status", dependencies=[Depends(auth)])
