@@ -15,7 +15,7 @@ DB_FILE = DATA_DIR / "jarvis.db"
 DEFAULTS = {
     "assistant_name": "0.5.4.M.4",           # the AI's identity — change it and everything follows
     "assistant_style": "calm, articulate, British, dry wit",
-    "operator_name": "sir",
+    "operator_name": "Mohamed",
     "provider": "groq",                 # groq | openai | ollama
     "groq_api_key": "",
     "groq_model": "",                   # empty = auto-pick best live model

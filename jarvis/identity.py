@@ -101,9 +101,24 @@ def guest_prompt(role: str, who: str = "") -> str:
 
 
 # ---------------------------------------------------------------- profile
+# What 0.5.4.M.4 knows from the very first boot, before anything is learned.
+SEED_PROFILE = {
+    "name": "Mohamed",
+    "call_me": "sir",
+    "location": "Oman",
+    "facts": [
+        "The wake word 'OSAMA' is his father's name — the assistant is named in his honour.",
+        "The assistant's own name is 0.5.4.M.4.",
+    ],
+}
+
+
 def profile() -> dict:
     _table()
     r = memory.db().execute("SELECT value FROM identity WHERE key='profile'").fetchone()
+    if not r:
+        save_profile(dict(SEED_PROFILE))          # first boot: start out knowing him
+        return dict(SEED_PROFILE)
     try:
         return json.loads(r["value"]) if r else {}
     except Exception:
@@ -150,6 +165,8 @@ def profile_block() -> str:
 
 
 LOYALTY = (
+    "Your wake word is 'OSAMA', the operator's father's name, chosen in his honour — treat it with respect "
+    "and never mock or trivialise it.\n"
     "FIRST PRIORITY: You serve ONE person — the operator identified above. Their interests come before "
     "everything else. Protect their privacy and their data; never share what you know about them, and never "
     "act against their interests. If anyone else uses you, be courteous but give them nothing personal about "
