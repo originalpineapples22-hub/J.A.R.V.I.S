@@ -41,10 +41,10 @@ This folder does not contain the current version of 0.5.4.M.4.
 
 You are most likely in the older Streamlit build. Get the current one:
 
-  cd `$env:USERPROFILE
-  git clone -b claude/jarvis-self-learning-pfsxu0 https://github.com/originalpineapples22-hub/J.A.R.V.I.S.git jarvis-v3
-  cd jarvis-v3
-  .\start.ps1
+  iwr -useb https://raw.githubusercontent.com/originalpineapples22-hub/J.A.R.V.I.S/claude/jarvis-self-learning-pfsxu0/deploy/bootstrap.ps1 | iex
+
+That one line clones into %USERPROFILE%\jarvis-v3 and starts it. Paste it as a
+single line - PowerShell shows ">>" and waits when you paste several at once.
 
 If this IS the right folder, you are behind - run:  git pull
 "@
@@ -69,10 +69,12 @@ This copy is inside the Windows system folder ($root).
 
 Windows blocks writes there, so memory and settings cannot be saved. Move it:
 
-  cd `$env:USERPROFILE
-  git clone -b claude/jarvis-self-learning-pfsxu0 https://github.com/originalpineapples22-hub/J.A.R.V.I.S.git jarvis-v3
-  cd jarvis-v3
-  .\start.ps1
+  iwr -useb https://raw.githubusercontent.com/originalpineapples22-hub/J.A.R.V.I.S/claude/jarvis-self-learning-pfsxu0/deploy/bootstrap.ps1 | iex
+
+That one line clones into %USERPROFILE%\jarvis-v3 and starts it. Paste it as a
+single line - PowerShell shows ">>" and waits when you paste several at once.
+
+Nothing is lost - this copy has no memory in it yet. Delete it afterwards.
 "@
 }
 
