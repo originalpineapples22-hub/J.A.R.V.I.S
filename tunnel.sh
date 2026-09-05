@@ -10,11 +10,14 @@ fail() { printf '\n  \033[31mX  %s\033[0m\n\n' "$1"; exit 1; }
 
 printf '\n  \033[36m0.5.4.M.4  --  opening a public address\033[0m\n\n'
 
-if ! (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
-    fail "Nothing is listening on port $port.
-     Run ./start.sh in another terminal, wait for \"Uvicorn running\",
-     leave it open, then run this again."
-fi
+# Wait rather than fail: the core needs a minute the first time while it installs.
+waited=0
+until (exec 3<>/dev/tcp/127.0.0.1/$port) 2>/dev/null; do
+    [ "$waited" -eq 0 ] && printf '  \033[33mwaiting for the core to come up...\033[0m\n'
+    sleep 3; waited=$((waited + 3))
+    [ "$waited" -ge 300 ] && fail "The core never came up on port $port (waited five minutes).
+     Look at the terminal running ./start.sh - the real error is there."
+done
 printf '  \033[90mserver: running on port %s\033[0m\n' "$port"
 
 exe="$(command -v cloudflared || true)"

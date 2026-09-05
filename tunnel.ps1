@@ -32,17 +32,26 @@ Write-Host "  0.5.4.M.4  --  opening a public address" -ForegroundColor Cyan
 Write-Host ""
 
 # --- 1. is the server actually up? ---------------------------------------
+# Wait rather than fail: BOOT.bat starts both windows at once, and the core
+# needs a minute the first time while it installs.
 $up = $false
-try {
-    $c = New-Object System.Net.Sockets.TcpClient
-    $c.Connect("127.0.0.1", $port); $up = $c.Connected; $c.Close()
-} catch { }
+$waited = 0
+while (-not $up -and $waited -lt 300) {
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $c.Connect("127.0.0.1", $port); $up = $c.Connected; $c.Close()
+    } catch { }
+    if (-not $up) {
+        if ($waited -eq 0) { Write-Host "  waiting for the core to come up..." -ForegroundColor Yellow }
+        Start-Sleep -Seconds 3; $waited += 3
+    }
+}
 if (-not $up) {
     Fail @"
-Nothing is listening on port $port, so there is nothing to publish yet.
+The core never came up on port $port (waited five minutes).
 
-Open a second PowerShell window in this folder, run  .\start.ps1  and wait for
-"Uvicorn running". Leave that window open, then run this one again.
+Look at the other window - the one running start.ps1 - and see what it says.
+That is where the real error will be.
 "@
 }
 Write-Host "  server: running on port $port" -ForegroundColor DarkGray

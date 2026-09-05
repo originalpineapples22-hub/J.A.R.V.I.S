@@ -48,9 +48,13 @@ build, the matching feature simply stays off and everything else still runs.
 
 ## Run locally instead
 
-**Windows** — double-click `start.ps1` (or `.\start.ps1` in PowerShell; if it
-says scripts are disabled, `powershell -ExecutionPolicy Bypass -File .\start.ps1`).
-**Mac / Linux** — `./start.sh`
+**Windows** — double-click **`BOOT.bat`**. It opens both windows for you: the
+core, and the tunnel that gives you a public HTTPS address for your phone.
+Leave both open; closing either takes it offline.
+
+**Mac / Linux** — `./start.sh`, then `./tunnel.sh` in a second terminal.
+
+To run the core alone, without publishing it: `.\start.ps1` / `./start.sh`.
 
 Either one sets up its own Python environment, installs what is missing, prints
 your access token and opens on <http://localhost:8080>. To reach it from your
