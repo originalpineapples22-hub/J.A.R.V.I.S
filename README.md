@@ -48,11 +48,24 @@ build, the matching feature simply stays off and everything else still runs.
 
 ## Run locally instead
 
+**Windows** — double-click `start.ps1` (or `.\start.ps1` in PowerShell; if it
+says scripts are disabled, `powershell -ExecutionPolicy Bypass -File .\start.ps1`).
+**Mac / Linux** — `./start.sh`
+
+Either one sets up its own Python environment, installs what is missing, prints
+your access token and opens on <http://localhost:8080>. By hand:
+
 ```
 pip install -r requirements.txt
 cp .env.example .env          # add a free key
 uvicorn jarvis.server:app --port 8080 --env-file .env
 ```
+
+> **`Could not import module "jarvis.server"`** means Python is not looking at
+> this code. Almost always one of: you are in the older Streamlit build (the
+> giveaway is a wall of `missing ScriptRunContext` warnings), or a stray
+> `jarvis.py` next to the `jarvis/` folder is hiding the package. The launchers
+> check both and tell you which.
 
 ## First commands
 

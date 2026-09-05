@@ -173,16 +173,18 @@ HTTPS address reachable from your phone anywhere.
 The only trade-off: it works while your PC is on.
 
 ```
-# 1. run 0.5.4.M.4 locally
-pip install -r requirements.txt
-python -m uvicorn jarvis.server:app --port 8080
+# 1. run 0.5.4.M.4 locally  -- Windows: .\start.ps1   Mac/Linux: ./start.sh
+#    (the launcher installs everything and prints your token)
 
 # 2. in a second terminal, expose it (installs from cloudflare.com/products/tunnel)
 cloudflared tunnel --url http://localhost:8080
 ```
 
+Keep the folder somewhere you own — `C:\Users\<you>\jarvis-v3`, never inside
+`C:\Windows`, where Windows blocks the writes that memory needs.
+
 It prints a public `https://something.trycloudflare.com` address. Open that on
 your phone, paste your token, and everything works — voice, camera,
 notifications — because it is real HTTPS.
 
-Ask me and I will write you a one-click launcher for this.
+The launcher (`start.ps1` / `start.sh`) is the one-click half of this.
