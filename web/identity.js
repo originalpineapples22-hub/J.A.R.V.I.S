@@ -9,7 +9,17 @@
       headers: {'Content-Type': 'application/json', 'X-JARVIS-TOKEN': TOKEN()},
       body: body ? JSON.stringify(body) : undefined}).then(r => r.json());
 
-  const ID = {faceReady: false, stream: null, lastGreet: 0};
+  const ID = {faceReady: false, stream: null, lastGreet: 0, hasCam: null};
+
+  async function cameraAvailable() {
+    if (ID.hasCam !== null) return ID.hasCam;
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) { ID.hasCam = false; return false; }
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      ID.hasCam = devs.some(d => d.kind === 'videoinput');
+    } catch (_) { ID.hasCam = false; }
+    return ID.hasCam;
+  }
   function say(msg) { const el = $('#id-status'); if (el) el.textContent = msg; }
 
   /* ---------- FACE ---------- */
@@ -48,6 +58,12 @@
   }
 
   async function enrolFace() {
+    if (!(await cameraAvailable())) {
+      $('#id-panel').hidden = false;
+      say('No camera on this device, sir. Face recognition is optional — your access code and voice already identify you. ' +
+          'You can enrol your face later from your phone or iPad, which have cameras, and it will work everywhere.');
+      return;
+    }
     if (!(await loadFaceModels())) return;
     $('#id-panel').hidden = false;
     await camera();
@@ -63,6 +79,10 @@
   }
 
   async function verifyFace(quiet) {
+    if (!(await cameraAvailable())) {
+      if (!quiet) { $('#id-panel').hidden = false; say('No camera on this device — use voice or your access code instead.'); }
+      return null;
+    }
     if (!(await loadFaceModels())) return null;
     $('#id-panel').hidden = false;
     await camera();
@@ -131,6 +151,7 @@
   /* ---------- greet on camera use ---------- */
   async function greetIfOwner() {
     if (Date.now() - ID.lastGreet < 300000) return;
+    if (!(await cameraAvailable())) return;
     const st = await api('/api/identity');
     if (!st.face_samples) return;
     ID.lastGreet = Date.now();
@@ -155,6 +176,17 @@
     bind('#id-verify-voice', verifyVoice);
     bind('#id-close', () => { stopCamera(); $('#id-panel').hidden = true; });
     refreshCounts();
+    // dim the camera buttons when there is no camera, rather than failing on click
+    cameraAvailable().then(has => {
+      if (!has) {
+        ['#id-enrol-face', '#id-verify-face'].forEach(sel => {
+          const b = $(sel);
+          if (b) { b.title = 'No camera detected on this device'; b.style.opacity = '.5'; }
+        });
+        const c = $('#id-counts');
+        if (c) c.textContent += (c.textContent ? ' · ' : '') + 'no camera on this device — face optional';
+      }
+    });
   });
   window.Identity = {enrolFace, verifyFace, enrolVoice, verifyVoice, greetIfOwner};
 })();

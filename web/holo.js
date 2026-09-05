@@ -12,6 +12,13 @@
     if ($('#holo-name') && window.AI_NAME) $('#holo-name').textContent = window.AI_NAME;
     try {
       status('starting camera…');
+      const devs = navigator.mediaDevices && navigator.mediaDevices.enumerateDevices
+        ? await navigator.mediaDevices.enumerateDevices() : [];
+      if (!devs.some(d => d.kind === 'videoinput')) {
+        status('No camera on this device, sir. Hologram mode needs one — it works on your phone or iPad, ' +
+               'or on this PC once you plug a webcam in. Everything else is unaffected.');
+        return;
+      }
       holo.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:1280, height:720}, audio:false});
       const v = $('#holo-cam'); v.srcObject = holo.stream; await v.play();
       status('loading vision model…');

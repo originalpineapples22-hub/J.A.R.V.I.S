@@ -131,6 +131,18 @@ async def run_all(quick=False):
         _module("Numerics (numpy)", "numpy", "pip install numpy"),
     ]
 
+    # --- device-dependent features (checked in the browser, noted here)
+    from . import identity as _id
+    _st = _id.status()
+    checks.append({"name": "Face recognition", "status": "PASS" if _st["face_samples"] else "SKIP",
+                   "detail": f"{_st['face_samples']} sample(s) enrolled" if _st["face_samples"]
+                             else "not enrolled — needs a camera; optional",
+                   "fix": "" if _st["face_samples"] else "Enrol from a phone or iPad if this machine has no camera."})
+    checks.append({"name": "Voice recognition", "status": "PASS" if _st["voice_samples"] else "SKIP",
+                   "detail": f"{_st['voice_samples']} sample(s) enrolled" if _st["voice_samples"]
+                             else "not enrolled — needs only a microphone",
+                   "fix": "" if _st["voice_samples"] else "Settings → Enrol my voice (10 seconds)."})
+
     # --- own systems
     from . import selfdev, memory
     ok, out = selfdev.self_test()
