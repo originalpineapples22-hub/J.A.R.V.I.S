@@ -5,7 +5,7 @@ import re
 import json
 import time
 import httpx
-from .config import load_settings
+from .config import load_settings, save_settings
 from . import providers as pv
 from . import budget
 
@@ -50,6 +50,52 @@ async def groq_models(key: str):
         models = []
     _model_cache.update(key=key, ts=time.time(), models=models)
     return models
+
+
+_models_cache = {}          # pid -> {"key":…, "ts":…, "models":[…]}
+_MODEL_GONE = ("no longer available", "no longer offered", "model_not_found", "unavailable for free",
+               "does not exist", "decommissioned", "deprecated", "not found")
+
+
+async def provider_models(pid: str, base: str, key: str):
+    """Ask an OpenAI-compatible provider what it serves right now."""
+    if not base or not key:
+        return []
+    c = _models_cache.get(pid) or {}
+    if c.get("key") == key and time.time() - c.get("ts", 0) < 900:
+        return c["models"]
+    models = []
+    try:
+        async with httpx.AsyncClient(timeout=15) as cl:
+            r = await cl.get(f"{base.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"})
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = (m.get("id") or "").strip()
+                # providers namespace their ids differently: models/x, publishers/y/models/x
+                short = mid.split("/")[-1] if mid.startswith("models/") else mid
+                if short and not any(x in short.lower() for x in _EXCLUDE):
+                    models.append(short)
+    except Exception:
+        models = []
+    _models_cache[pid] = {"key": key, "ts": time.time(), "models": models}
+    return models
+
+
+def _model_gone(err: str) -> bool:
+    low = err.lower()
+    return ("404" in err or "400" in err) and any(x in low for x in _MODEL_GONE)
+
+
+def _suggested_model(err: str):
+    """Providers usually name the replacement in the refusal — take them at their word."""
+    for pat in (r"use\s+models/([A-Za-z0-9._:-]+)",
+                r"use this slug instead:\s*([A-Za-z0-9._:/-]+)",
+                r"use\s+([A-Za-z0-9._:/-]+)\s+for the latest",
+                r"models/([A-Za-z0-9._:-]+)\s+for the latest"):
+        m = re.search(pat, err)
+        if m:
+            return m.group(1).rstrip(".,'\"")
+    return None
 
 
 def _short_error(e) -> str:
@@ -180,20 +226,52 @@ async def _stream_raw(messages, temperature, settings, timeout):
         if not model or (pid not in ("ollama",) and not key):
             continue
         tried.append(pid)
-        try:
-            got = False
-            budget.record(_CALL_KIND.get("kind", "operator"))
-            async for tok in _stream_one(pid, base, key, model, messages, temperature, timeout):
-                got = True
-                yield tok
-            if got:
-                pv.clear_cooldown(pid)
-                return
-        except Exception as e:
-            errors.append(f"{pid}: {_short_error(e)}")
-            msg = str(e)
+        # A model name that worked last month gets retired; the provider is fine.
+        # Try the replacement it names, then whatever it currently serves, before
+        # writing the provider off — and remember what worked.
+        attempts, healed, err = [model], None, None
+        while attempts:
+            candidate = attempts.pop(0)
+            try:
+                got = False
+                budget.record(_CALL_KIND.get("kind", "operator"))
+                async for tok in _stream_one(pid, base, key, candidate, messages, temperature, timeout):
+                    got = True
+                    yield tok
+                if got:
+                    pv.clear_cooldown(pid)
+                    if candidate != model:
+                        try:
+                            save_settings({f"{pid}_model": candidate})
+                        except Exception:
+                            pass
+                    return
+            except Exception as e:
+                err = e
+                if got:
+                    break                      # it started answering, so the model is fine
+                if healed is None and _model_gone(str(e)):
+                    if pid == "openrouter":
+                        # Its refusal names the PAID slug as the replacement. Never
+                        # follow that — only ever move to something still free.
+                        healed = ""
+                        live = await openrouter_free_models(key)
+                    else:
+                        healed = _suggested_model(str(e)) or ""
+                        live = await provider_models(pid, base, key)
+                    for c in ([healed] if healed else []) + [pick_model(live) or ""]:
+                        if c and c != candidate and c not in attempts:
+                            attempts.append(c)
+                    if attempts:
+                        continue
+                break
+        if err is not None:
+            errors.append(f"{pid}: {_short_error(err)}")
+            msg = str(err)
             if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
                 pv.cool_off(pid, 900)      # rate-limited: rest for 15 minutes
+            elif "410" in msg:
+                pv.cool_off(pid, 3600)     # retired or in a brownout: leave it alone for an hour
             else:
                 pv.cool_off(pid, 120)
             continue

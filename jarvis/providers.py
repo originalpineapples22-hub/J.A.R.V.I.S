@@ -17,7 +17,7 @@ PROVIDERS = [
      "github_models_key", "openai/gpt-4.1", "frontier",
      "FREE with any GitHub account — frontier-class models. Create a token at github.com/settings/tokens (no scopes needed)."),
     ("gemini",   "Google Gemini",  "https://generativelanguage.googleapis.com/v1beta/openai",
-     "gemini_key", "gemini-2.0-flash", "frontier",
+     "gemini_key", "gemini-3.6-flash", "frontier",   # a starting guess; retired names self-heal
      "FREE at aistudio.google.com/apikey — very generous daily limits."),
     ("cerebras", "Cerebras",       "https://api.cerebras.ai/v1",
      "cerebras_key", "llama-3.3-70b", "strong",
@@ -26,7 +26,7 @@ PROVIDERS = [
      "groq_api_key", "", "strong",
      "FREE at console.groq.com — fast, reliable."),
     ("openrouter", "OpenRouter",   "https://openrouter.ai/api/v1",
-     "openrouter_key", "meta-llama/llama-3.3-70b-instruct:free", "strong",
+     "openrouter_key", "", "strong",                 # empty = whatever is free today
      "FREE at openrouter.ai — many models ending in :free."),
     ("mistral",  "Mistral",        "https://api.mistral.ai/v1",
      "mistral_key", "mistral-large-latest", "strong",
