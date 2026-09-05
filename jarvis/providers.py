@@ -33,8 +33,8 @@ PROVIDERS = [
      "FREE tier at console.mistral.ai."),
     ("openai",   "OpenAI-compatible", "", "openai_api_key", "", "custom",
      "Any other OpenAI-compatible endpoint."),
-    ("ollama",   "Ollama (local)", "", "", "", "local",
-     "Runs on your own PC, completely offline."),
+    ("ollama",   "Your PC (Ollama)", "", "", "", "local",
+     "UNLIMITED — runs on your own machine. Used automatically when the cloud tiers are exhausted, if your PC is on."),
 ]
 
 BY_ID = {p[0]: p for p in PROVIDERS}
@@ -50,7 +50,7 @@ def configured(s=None):
         if pid == "ollama":
             if s.get("provider") == "ollama" or s.get("use_ollama"):
                 out.append(pid)
-            continue
+            continue    # local is ranked last in order(), so it is the unlimited fallback
         if key_setting and (s.get(key_setting) or "").strip():
             out.append(pid)
     return out

@@ -43,6 +43,7 @@ DEFAULTS = {
     "webhooks": "{}",
     "embed_model": "text-embedding-3-small",
     "semantic_memory": True,
+    "use_ollama": False,               # your PC as an UNLIMITED fallback when cloud quotas run out
     "daily_call_budget": 900,          # model calls per day before background work stops
     "background_share": 0.35,          # share of the day background work may use
     "require_approval_for_self_edit": True,
