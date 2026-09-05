@@ -42,6 +42,12 @@ Needed because iPhone requires HTTPS for the app and notifications.
 
 ## PART 3 — Free 24/7 server (20 min)
 
+> **Oracle not working for you?** Use **[Fly.io instead](deploy/FLY.md)** —
+> it has persistent storage (essential, so your memory survives restarts) and
+> is far simpler to set up. Or run it on your own PC with a free Cloudflare
+> tunnel, also covered in that guide. The rest of this file still applies from
+> PART 5 onward.
+
 ### 3.1 Create the account
 1. Go to **cloud.oracle.com** → **Start for free**
 2. Choose country **Oman**, fill your details
