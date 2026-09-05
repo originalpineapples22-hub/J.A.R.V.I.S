@@ -81,14 +81,18 @@ BRAIN_MAX = 150
 
 
 def _brain_points(s) -> tuple:
-    prov = s.get("provider", "groq")
-    model = (s.get("groq_model") or s.get("openai_model") or s.get("ollama_model") or "").lower()
-    if not (s.get("groq_api_key") or s.get("openai_api_key") or prov == "ollama"):
+    """Scored from the free brain pool. A frontier model reachable on a FREE
+    tier (GitHub Models, Gemini) earns full marks — paying is never required."""
+    from . import providers as pv
+    have = pv.configured(s)
+    if not have:
         return 0, "no brain configured"
-    for pts, keys in BRAIN_TIERS:
-        if any(k in model for k in keys):
-            return pts, model or prov
-    return 65, model or prov
+    tier = pv.best_tier(s)
+    names = ", ".join(pv.BY_ID[p][1] for p in have[:3])
+    pts = {"frontier": 150, "strong": 100, "custom": 100, "local": 65}.get(tier, 65)
+    if len(have) >= 3:
+        pts = min(150, pts + 10)        # a resilient pool is genuinely better
+    return pts, f"{tier} via {names}"
 
 
 def _credential_present(cid, s):

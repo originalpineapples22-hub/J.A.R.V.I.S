@@ -6,6 +6,7 @@ import json
 import time
 import httpx
 from .config import load_settings
+from . import providers as pv
 
 GROQ_BASE = "https://api.groq.com/openai/v1"
 _model_cache = {"key": None, "ts": 0.0, "models": []}
@@ -61,17 +62,20 @@ def pick_model(models, vision=False):
 
 
 async def resolve(settings=None, vision=False):
-    """Return (provider, base_url, api_key, model)."""
+    """Pick the best available provider right now. Returns (pid, base, key, model)."""
     s = settings or load_settings()
-    p = s.get("provider", "groq")
-    if p == "groq":
-        models = await groq_models(s.get("groq_api_key"))
-        want = s.get("vision_model") if vision else s.get("groq_model")
-        model = want if want and want in models else pick_model(models, vision)
-        return "groq", GROQ_BASE, s.get("groq_api_key", ""), model
-    if p == "openai":
-        return "openai", s.get("openai_base_url"), s.get("openai_api_key", ""), (s.get("vision_model") or s.get("openai_model"))
-    return "ollama", s.get("ollama_url").rstrip("/"), "", (s.get("vision_model") or "llava") if vision else s.get("ollama_model")
+    for pid in pv.order(s):
+        base, key, model = pv.resolve(pid, s)
+        if pid == "groq" and not model:
+            models = await groq_models(key)
+            want = s.get("vision_model") if vision else s.get("groq_model")
+            model = want if want and want in models else pick_model(models, vision)
+        if vision and pid in ("groq",):
+            models = await groq_models(key)
+            model = pick_model(models, vision=True) or model
+        if model:
+            return pid, base, key, model
+    return "none", "", "", ""
 
 
 async def stream(messages, temperature=0.3, settings=None, timeout=300):
@@ -93,33 +97,40 @@ async def stream(messages, temperature=0.3, settings=None, timeout=300):
 
 
 async def _stream_raw(messages, temperature, settings, timeout):
-    provider, base, key, model = await resolve(settings)
-    if provider in ("groq", "openai"):
-        if not key:
-            raise RuntimeError(f"No API key configured for {provider}. Open Settings and add it.")
-        if not model:
-            raise RuntimeError("No usable model found for this provider/key.")
-        payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
-        async with httpx.AsyncClient(timeout=timeout) as c:
-            async with c.stream("POST", f"{base}/chat/completions", json=payload,
-                                headers={"Authorization": f"Bearer {key}"}) as r:
-                if r.status_code == 404 and provider == "groq":
-                    _model_cache["ts"] = 0.0
-                    raise RuntimeError("Model not found on Groq; retry (model list refreshed).")
-                r.raise_for_status()
-                async for line in r.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        delta = json.loads(data)["choices"][0]["delta"].get("content") or ""
-                    except Exception:
-                        delta = ""
-                    if delta:
-                        yield delta
-    else:
+    """Try each configured provider in turn; a rate-limited or failing provider
+    is put on cooldown and the next one takes over, so the free tiers add up."""
+    s = settings or load_settings()
+    tried, last_err = [], None
+    for pid in pv.order(s):
+        base, key, model = pv.resolve(pid, s)
+        if pid == "groq" and not model:
+            model = pick_model(await groq_models(key)) or ""
+        if not model or (pid not in ("ollama",) and not key):
+            continue
+        tried.append(pid)
+        try:
+            got = False
+            async for tok in _stream_one(pid, base, key, model, messages, temperature, timeout):
+                got = True
+                yield tok
+            if got:
+                pv.clear_cooldown(pid)
+                return
+        except Exception as e:
+            last_err = f"{pid}: {e}"
+            msg = str(e)
+            if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
+                pv.cool_off(pid, 900)      # rate-limited: rest for 15 minutes
+            else:
+                pv.cool_off(pid, 120)
+            continue
+    raise RuntimeError(
+        f"No brain available. Tried: {', '.join(tried) or 'none configured'}. "
+        f"Add a free key in Settings (GitHub Models, Gemini, Cerebras or Groq). Last error — {last_err}")
+
+
+async def _stream_one(pid, base, key, model, messages, temperature, timeout):
+    if pid == "ollama":
         payload = {"model": model, "messages": messages, "stream": True, "options": {"temperature": temperature}}
         async with httpx.AsyncClient(timeout=timeout) as c:
             async with c.stream("POST", f"{base}/api/chat", json=payload) as r:
@@ -129,6 +140,29 @@ async def _stream_raw(messages, temperature, settings, timeout):
                         tok = json.loads(line).get("message", {}).get("content", "")
                         if tok:
                             yield tok
+        return
+    payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
+    headers = {"Authorization": f"Bearer {key}"}
+    if pid == "openrouter":
+        headers["HTTP-Referer"] = "https://github.com/originalpineapples22-hub"
+        headers["X-Title"] = "0.5.4.M.4"
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        async with c.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
+            if r.status_code >= 400:
+                body = (await r.aread())[:200].decode("utf-8", "ignore")
+                raise RuntimeError(f"HTTP {r.status_code} {body}")
+            async for line in r.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0]["delta"].get("content") or ""
+                except Exception:
+                    delta = ""
+                if delta:
+                    yield delta
 
 
 async def complete(messages, temperature=0.3, settings=None, timeout=300) -> str:
@@ -143,7 +177,7 @@ async def describe_image(b64_png: str, question: str, settings=None) -> str:
     if not model:
         return "No vision-capable model is available on the current provider."
     async with httpx.AsyncClient(timeout=120) as c:
-        if provider in ("groq", "openai"):
+        if provider != "ollama":
             payload = {"model": model, "temperature": 0.2, "messages": [{"role": "user", "content": [
                 {"type": "text", "text": question},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64_png}"}}]}]}
@@ -158,18 +192,7 @@ async def describe_image(b64_png: str, question: str, settings=None) -> str:
 
 async def provider_status(settings=None) -> dict:
     s = settings or load_settings()
-    out = {"groq": {"connected": bool(s.get("groq_api_key")), "model": None},
-           "openai": {"connected": bool(s.get("openai_api_key")), "model": s.get("openai_model")},
-           "ollama": {"connected": False, "model": s.get("ollama_model")}}
-    if s.get("groq_api_key"):
-        models = await groq_models(s["groq_api_key"])
-        out["groq"]["model"] = s.get("groq_model") or pick_model(models)
-        out["groq"]["connected"] = bool(models)
-    try:
-        async with httpx.AsyncClient(timeout=2) as c:
-            r = await c.get(f"{s['ollama_url'].rstrip('/')}/api/tags")
-            out["ollama"]["connected"] = r.status_code == 200
-    except Exception:
-        pass
-    out["active"] = s.get("provider")
-    return out
+    items = pv.status(s)
+    active, base, key, model = await resolve(s)
+    return {"pool": items, "active": active, "model": model,
+            "tier": pv.best_tier(s), "cooldowns": pv.cooldowns()}

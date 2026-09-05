@@ -43,6 +43,14 @@ DEFAULTS = {
     "webhooks": "{}",
     "embed_model": "text-embedding-3-small",
     "semantic_memory": True,
+    # --- free brain pool (add any, it uses the best available and fails over)
+    "github_models_key": "",
+    "gemini_key": "",
+    "cerebras_key": "",
+    "openrouter_key": "",
+    "mistral_key": "",
+    "github_model": "", "gemini_model": "", "cerebras_model": "",
+    "openrouter_model": "", "mistral_model": "",
 }
 
 

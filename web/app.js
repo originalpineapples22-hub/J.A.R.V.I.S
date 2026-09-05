@@ -92,9 +92,11 @@ async function refresh() {
   $('#feed-list').innerHTML = s.events.map(e => `<li><i>${{learn: '📚', task: '☑', reminder: '⏰', file: '📦', alert: '⚠', briefing: '☀', system: '◎'}[e.kind] || '•'}</i><div>${e.text}<small>${e.ts}</small></div></li>`).join('') || '<li class="muted">Quiet for now.</li>';
   $('#agent-grid').innerHTML = ''; for (const a of s.agents) { const d = document.createElement('div'); d.className = 'agent'; d.innerHTML = `<b>${a.name}</b><span>● Standby</span>`; d.title = a.tools.join(', '); $('#agent-grid').appendChild(d); agentEls[a.name] = d; }
   $('#tl-list').innerHTML = [...s.reminders.map(r => `<li><span class="t">${r.when_ts.slice(5, 16)}</span>⏰ ${r.text}</li>`), ...s.tasks.map(t => `<li><span class="t">${t.due ? t.due.slice(5, 16) : 'open'}</span>${t.title}<button onclick="doneTask(${t.id})">done</button></li>`)].join('') || '<li class="muted">Nothing scheduled, sir.</li>';
-  const p = s.providers; const tiles = [['Groq', p.groq], ['OpenAI-compatible', p.openai], ['Ollama (local)', p.ollama]];
-  $('#llm-grid').innerHTML = tiles.map(([n, v], i) => `<div class="llm ${v.connected ? 'on' : ''} ${p.active === ['groq', 'openai', 'ollama'][i] ? 'active' : ''}"><b>${n}</b><span>${v.connected ? 'Connected' : 'Not linked'}${v.model ? ' · ' + v.model : ''}</span></div>`).join('');
-  $('#llm-count').textContent = tiles.filter(([, v]) => v.connected).length + ' Connected'; $('#c-llm').textContent = (p[p.active] && p[p.active].model) || p.active;
+  const p = s.providers || {}; const pool = p.pool || [];
+  $('#llm-grid').innerHTML = pool.map(v => `<div class="llm ${v.connected ? 'on' : ''} ${p.active === v.id ? 'active' : ''}">
+      <b>${v.name}</b><span>${v.cooldown ? 'cooling ' + v.cooldown + 's' : v.connected ? 'Connected' + (v.model ? ' · ' + v.model : '') : 'Free — not linked'}</span></div>`).join('');
+  $('#llm-count').textContent = pool.filter(v => v.connected).length + ' Connected';
+  $('#c-llm').textContent = `${p.tier || '—'} · ${p.model || p.active || 'none'}`;
   $('#c-voice').textContent = s.pc_online ? 'Browser + PC ear' : 'Browser';
   if (s.curriculum) { const cu = s.curriculum; const el = $('#c-study');
     if (el) el.textContent = cu.current ? `studying ${cu.current} · ${cu.learned}/${cu.total}` : `${cu.learned}/${cu.total} mastered (${cu.percent}%)`; }
@@ -108,6 +110,9 @@ $$('#nav a, a.more[data-target]').forEach(a => a.onclick = () => { $$('#nav a').
 const modal = $('#modal');
 function openSettings(msg) { modal.classList.remove('hidden'); $('#s-msg').textContent = msg || ''; $('#s-token').value = TOKEN; if (TOKEN) loadSettings(); }
 async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour;
+    $('#s-github').value = s.github_models_key || ''; $('#s-gemini').value = s.gemini_key || '';
+    $('#s-cerebras').value = s.cerebras_key || ''; $('#s-openrouter').value = s.openrouter_key || '';
+    $('#s-mistral').value = s.mistral_key || '';
     $('#s-tavily').value = s.tavily_key || ''; $('#s-wolfram').value = s.wolfram_appid || '';
     $('#s-eleven').value = s.elevenlabs_key || ''; $('#s-eleven-voice').value = s.elevenlabs_voice || '';
     $('#s-ha-url').value = s.homeassistant_url || ''; $('#s-ha-token').value = s.homeassistant_token || '';
@@ -115,7 +120,9 @@ async function loadSettings() { try { const s = await api('/api/settings'); $('#
 $('#btn-settings').onclick = () => openSettings(); $('#modal-close').onclick = () => modal.classList.add('hidden');
 $('#s-save').onclick = async () => { TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
   try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8'),
-      tavily_key: $('#s-tavily').value, wolfram_appid: $('#s-wolfram').value,
+      github_models_key: $('#s-github').value, gemini_key: $('#s-gemini').value,
+      cerebras_key: $('#s-cerebras').value, openrouter_key: $('#s-openrouter').value,
+      mistral_key: $('#s-mistral').value, tavily_key: $('#s-tavily').value, wolfram_appid: $('#s-wolfram').value,
       elevenlabs_key: $('#s-eleven').value, elevenlabs_voice: $('#s-eleven-voice').value,
       homeassistant_url: $('#s-ha-url').value, homeassistant_token: $('#s-ha-token').value,
       webhooks: $('#s-hooks').value})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = 'Could not save — check the token.'; } };
