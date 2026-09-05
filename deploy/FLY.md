@@ -12,11 +12,24 @@ all, skip to *No-card alternative* at the bottom — you keep every feature.
 
 ## Step 1 — Install the Fly tool (2 min)
 
-**Windows** — open PowerShell and paste:
+**Windows** — open **PowerShell** (Windows key → type `powershell` → Enter) and paste:
 ```
-pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
+iwr https://fly.io/install.ps1 -useb | iex
 ```
-Close and reopen PowerShell afterwards.
+Then **close PowerShell and open it again** so it picks up the new command.
+
+> If you see *"running scripts is disabled on this system"*, run this once and
+> then retry the line above:
+> ```
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+> ```
+
+> If `fly` is still not recognised after reopening PowerShell, add it manually:
+> ```
+> $env:Path += ";$env:USERPROFILE\.fly\bin"
+> ```
+> (For a permanent fix: Windows key → "environment variables" → Path → New →
+> `%USERPROFILE%\.fly\bin`)
 
 **Mac / Linux:**
 ```
