@@ -117,10 +117,13 @@ def profile() -> dict:
     _table()
     r = memory.db().execute("SELECT value FROM identity WHERE key='profile'").fetchone()
     if not r:
-        save_profile(dict(SEED_PROFILE))          # first boot: start out knowing him
+        # first boot: write the seed directly (never via save_profile, which reads back)
+        memory.db().execute("INSERT OR REPLACE INTO identity(key, value, ts) VALUES ('profile', ?, ?)",
+                            (json.dumps(SEED_PROFILE), memory.now()))
+        memory.db().commit()
         return dict(SEED_PROFILE)
     try:
-        return json.loads(r["value"]) if r else {}
+        return json.loads(r["value"])
     except Exception:
         return {}
 
