@@ -117,6 +117,10 @@ $$('#nav a, a.more[data-target]').forEach(a => a.onclick = () => { $$('#nav a').
 const modal = $('#modal');
 function openSettings(msg) { modal.classList.remove('hidden'); $('#s-msg').textContent = msg || ''; $('#s-token').value = TOKEN; if (TOKEN) loadSettings(); }
 async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour;
+    const ident = await api('/api/identity').catch(()=>({profile:{}}));
+    const P = ident.profile || {};
+    $('#s-my-name').value = P.name || ''; $('#s-call-me').value = P.call_me || '';
+    $('#s-my-loc').value = P.location || ''; $('#s-my-work').value = P.work || ''; $('#s-my-goals').value = P.goals || '';
     $('#s-github').value = s.github_models_key || ''; $('#s-gemini').value = s.gemini_key || '';
     $('#s-cerebras').value = s.cerebras_key || ''; $('#s-openrouter').value = s.openrouter_key || '';
     $('#s-mistral').value = s.mistral_key || ''; $('#s-use-ollama').checked = !!s.use_ollama; $('#s-budget').value = s.daily_call_budget || 900;
@@ -125,7 +129,10 @@ async function loadSettings() { try { const s = await api('/api/settings'); $('#
     $('#s-ha-url').value = s.homeassistant_url || ''; $('#s-ha-token').value = s.homeassistant_token || '';
     $('#s-hooks').value = s.webhooks || '{}'; const sel = $('#s-groq-model'); sel.innerHTML = '<option value="">Auto (best available)</option>' + (s.groq_models || []).map(m => `<option ${m === s.groq_model ? 'selected' : ''}>${m}</option>`).join(''); } catch (_) {} }
 $('#btn-settings').onclick = () => openSettings(); $('#modal-close').onclick = () => modal.classList.add('hidden');
-$('#s-save').onclick = async () => { TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
+$('#s-save').onclick = async () => {
+  try { await api('/api/identity/profile', {method:'POST', body: JSON.stringify({
+    name: $('#s-my-name').value, call_me: $('#s-call-me').value, location: $('#s-my-loc').value,
+    work: $('#s-my-work').value, goals: $('#s-my-goals').value })}); } catch(_){} TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
   try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8'),
       github_models_key: $('#s-github').value, gemini_key: $('#s-gemini').value,
       cerebras_key: $('#s-cerebras').value, openrouter_key: $('#s-openrouter').value,

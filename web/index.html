@@ -205,6 +205,25 @@
       <label>Ollama model <input id="s-ollama-model"></label>
       <label>Timezone <input id="s-tz" placeholder="Asia/Muscat"></label>
       <label>Daily briefing hour (0-23, -1 off) <input id="s-brief" type="number" min="-1" max="23"></label>
+      <div class="ph" style="margin-top:10px">WHO I AM <span class="muted">— so it knows you</span></div>
+      <label>Your name <input id="s-my-name" placeholder="Osama"></label>
+      <label>Call me <input id="s-call-me" placeholder="sir / boss / Osama"></label>
+      <label>Location <input id="s-my-loc" placeholder="Muscat, Oman"></label>
+      <label>Work / study <input id="s-my-work" placeholder="what you do"></label>
+      <label>Goals <input id="s-my-goals" placeholder="what you are trying to achieve"></label>
+      <div class="row">
+        <button id="id-enrol-face">📷 Enrol my face</button>
+        <button id="id-verify-face">Check face</button>
+        <button id="id-enrol-voice">🎙️ Enrol my voice</button>
+        <button id="id-verify-voice">Check voice</button>
+      </div>
+      <div id="id-counts" class="muted"></div>
+      <div id="id-panel" hidden style="border:1px solid var(--line2);border-radius:6px;padding:8px;margin-top:6px">
+        <video id="id-cam" playsinline muted style="width:100%;max-height:220px;border-radius:6px;transform:scaleX(-1);background:#000"></video>
+        <div id="id-status" class="muted" style="margin-top:6px"></div>
+        <button id="id-close" style="margin-top:6px">Close camera</button>
+      </div>
+
       <div class="ph" style="margin-top:10px">FREE BRAIN POOL <span class="muted">— add any, it uses the best and fails over when one is busy</span></div>
       <label>GitHub Models key <span class="muted">— FREE frontier models with your GitHub account (github.com/settings/tokens)</span><input id="s-github" type="password" placeholder="ghp_…"></label>
       <label>Google Gemini key <span class="muted">— FREE at aistudio.google.com/apikey</span><input id="s-gemini" type="password" placeholder="AIza…"></label>
@@ -271,5 +290,6 @@
 <script src="/static/app.js"></script>
 <script src="/static/holo.js"></script>
 <script src="/static/listen.js"></script>
+<script src="/static/identity.js"></script>
 </body>
 </html>

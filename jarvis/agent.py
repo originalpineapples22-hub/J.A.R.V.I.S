@@ -4,7 +4,7 @@
 import re
 import json
 import asyncio
-from . import brain, memory, selfdev, rag, skills
+from . import brain, memory, selfdev, rag, skills, identity
 from .tools import manifest, get as get_tool
 from .config import load_settings
 
@@ -50,6 +50,8 @@ def build_system(channel: str, user_text: str) -> str:
     know = memory.recall_knowledge(user_text, k=2, max_chars=3500)
     if know:
         sysmsg += f"\n\nKNOWLEDGE (lessons you learned):\n{know}"
+    sysmsg += identity.profile_block()
+    sysmsg += "\n\n" + identity.LOYALTY
     sysmsg += skills.prompt_block()
     sk = memory.skills()
     if sk:

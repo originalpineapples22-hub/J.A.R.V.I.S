@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
-from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions, idle, budget, doctor
+from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions, idle, budget, doctor, identity
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -89,6 +89,7 @@ async def status():
         "missions": missions.all_missions(),
         "idle": idle.state(),
         "budget": budget.status(),
+        "identity": identity.status(),
         "preview": __import__("jarvis.tools.preview", fromlist=["latest"]).latest(),
     }
 
@@ -215,6 +216,39 @@ async def preview_file(name: str):
     if not p.exists():
         raise HTTPException(404)
     return FileResponse(p, media_type="text/html")
+
+
+@app.get("/api/identity", dependencies=[Depends(auth)])
+async def api_identity():
+    return identity.status()
+
+
+@app.post("/api/identity/enrol", dependencies=[Depends(auth)])
+async def api_enrol(req: Request):
+    d = await req.json()
+    kind = d.get("kind", "face")
+    vec = d.get("vector") or []
+    if kind not in ("face", "voice") or not isinstance(vec, list) or len(vec) < 8:
+        raise HTTPException(400, "Bad enrolment data")
+    return {"message": identity.enrol(kind, vec)}
+
+
+@app.post("/api/identity/verify", dependencies=[Depends(auth)])
+async def api_verify(req: Request):
+    d = await req.json()
+    kind = d.get("kind", "face")
+    vec = d.get("vector") or []
+    if not isinstance(vec, list) or len(vec) < 8:
+        raise HTTPException(400, "Bad sample")
+    res = identity.verify(kind, vec)
+    if res.get("enrolled"):
+        memory.add_event("system", f"{kind.title()} check: {'operator recognised' if res['known'] else 'UNKNOWN PERSON'} ({res['score']})")
+    return res
+
+
+@app.post("/api/identity/profile", dependencies=[Depends(auth)])
+async def api_profile(req: Request):
+    return identity.save_profile(await req.json())
 
 
 @app.get("/api/doctor", dependencies=[Depends(auth)])
