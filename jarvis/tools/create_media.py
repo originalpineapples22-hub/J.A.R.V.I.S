@@ -39,7 +39,7 @@ async def generate_image(args, ctx):
         body = (f'<div style="padding:10px;text-align:center">'
                 f'<img src="data:image/jpeg;base64,{b64}" style="max-width:100%;border-radius:8px">'
                 f'<div style="color:#8fa8c8;font-size:12px;margin-top:8px">{desc[:120]}</div></div>')
-        _publish(f"{name}_img.html", SHELL.format(body=body), "image", desc[:40])
+        _publish(name, SHELL.format(body=body), "image", desc[:40])
         memory.add_event("file", f"Image generated: {desc[:60]}")
         return f"Created **{desc[:60]}** — it is in the live window and saved as `{p.name}` in Files."
     except Exception as e:

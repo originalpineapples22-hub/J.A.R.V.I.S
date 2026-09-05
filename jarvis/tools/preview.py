@@ -3,6 +3,8 @@
 dashboard that the operator can see and interact with immediately."""
 import re
 import json
+import secrets
+import time
 from pathlib import Path
 from . import tool
 from .. import memory
@@ -18,7 +20,26 @@ SHELL = """<!doctype html><html><head><meta charset="utf-8">
 </head><body>{body}</body></html>"""
 
 
+def _clean_old(keep_seconds=86400, keep_max=40):
+    """Previews are transient: drop old ones so nothing lingers on disk."""
+    try:
+        files = sorted(PREVIEW_DIR.glob("*.html"), key=lambda f: f.stat().st_mtime, reverse=True)
+        now = time.time()
+        for i, f in enumerate(files):
+            if i >= keep_max or now - f.stat().st_mtime > keep_seconds:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _publish(name: str, html: str, kind: str, title: str):
+    # Previews are served without a token so the dashboard iframe can render
+    # them, so the FILENAME is the secret: a guessable name like
+    # "salary_report.html" would let anyone who knows the address read private
+    # content. Every preview therefore gets 128 bits of randomness.
+    stem = re.sub(r"[^a-z0-9]+", "_", Path(name).stem.lower())[:32] or "preview"
+    name = f"{stem}_{secrets.token_urlsafe(16)}.html"
+    _clean_old()
     p = PREVIEW_DIR / name
     p.write_text(html, encoding="utf-8")
     LATEST.write_text(json.dumps({"name": name, "title": title, "kind": kind, "ts": memory.now()}), encoding="utf-8")
@@ -45,8 +66,7 @@ def show_preview(args, ctx):
     if "<html" not in html.lower():
         html = SHELL.format(body=html)
     title = args.get("title") or "Preview"
-    name = re.sub(r"[^a-z0-9]+", "_", title.lower())[:40] + ".html"
-    return _publish(name, html, "html", title)
+    return _publish(title, html, "html", title)
 
 
 @tool("show_chart",
@@ -85,8 +105,7 @@ new Chart(document.getElementById('c'), {{
     scales: {json.dumps({}) if ctype in ('pie','doughnut','radar') else '{x:{ticks:{color:"#8fa8c8"},grid:{color:"#1d2c4a"}},y:{ticks:{color:"#8fa8c8"},grid:{color:"#1d2c4a"}}}'} }}
 }});
 </script>"""
-    name = re.sub(r"[^a-z0-9]+", "_", title.lower())[:40] + ".html"
-    return _publish(name, SHELL.format(body=body), "chart", title)
+    return _publish(title, SHELL.format(body=body), "chart", title)
 
 
 @tool("show_diagram",
@@ -104,5 +123,4 @@ def show_diagram(args, ctx):
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
 mermaid.initialize({{startOnLoad:true, theme:'dark'}});
 </script>"""
-    name = re.sub(r"[^a-z0-9]+", "_", title.lower())[:40] + ".html"
-    return _publish(name, SHELL.format(body=body), "diagram", title)
+    return _publish(title, SHELL.format(body=body), "diagram", title)

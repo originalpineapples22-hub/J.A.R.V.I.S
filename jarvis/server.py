@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """FastAPI server: the single-screen PWA, streaming chat (WebSocket), REST for panels,
 push notifications, PC-agent relay, Siri-friendly plain-text endpoint."""
+import re
 import json
 import asyncio
 from pathlib import Path
@@ -222,13 +223,18 @@ async def tts(text: str = "", voice: str = ""):
 
 @app.get("/preview/{name}")
 async def preview_file(name: str):
-    """Served without a token so the dashboard iframe can render it; the file
-    names are unguessable-by-design content the operator just created."""
+    """Served without a token so the dashboard iframe can render it. Security
+    rests on the filename: each preview carries 128 bits of randomness, so the
+    URL itself is the capability. Anything not matching that shape is refused."""
     from .tools.preview import PREVIEW_DIR
-    p = PREVIEW_DIR / Path(name).name
+    safe = Path(name).name
+    if not re.fullmatch(r"[a-z0-9_]{1,40}_[A-Za-z0-9_-]{22}\.html", safe):
+        raise HTTPException(404)
+    p = PREVIEW_DIR / safe
     if not p.exists():
         raise HTTPException(404)
-    return FileResponse(p, media_type="text/html")
+    return FileResponse(p, media_type="text/html",
+                        headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
 
 
 @app.get("/api/guest/status")
