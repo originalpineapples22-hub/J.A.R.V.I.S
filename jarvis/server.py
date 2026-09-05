@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
-from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag
+from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -35,6 +35,7 @@ async def _startup():
     memory.db()
     asyncio.get_event_loop().create_task(scheduler_loop())
     asyncio.get_event_loop().create_task(curriculum.autonomous_loop())
+    asyncio.get_event_loop().create_task(missions.resume_all())
     memory.add_event("system", f"J.A.R.V.I.S. core v{__version__} online")
 
 
@@ -84,6 +85,7 @@ async def status():
         "capability": connectors.status(),
         "curriculum": curriculum.auto_state(),
         "rag": {"available": rag.available(), "backend": rag.backend_name()},
+        "missions": missions.all_missions(),
     }
 
 
