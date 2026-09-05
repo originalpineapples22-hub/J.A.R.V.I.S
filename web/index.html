@@ -11,9 +11,13 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <title>0.5.4.M.4 Command Center</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
+<!-- Fonts are a nicety, never a gate: loaded without blocking the first paint,
+     so a slow or unreachable fonts.googleapis.com cannot leave a blank screen. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap">
 </head>
 <body>
 <div id="app">
