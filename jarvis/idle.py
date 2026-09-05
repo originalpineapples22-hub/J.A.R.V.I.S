@@ -104,9 +104,11 @@ async def loop():
             if _state["enabled"] and _minutes_since_activity() >= IDLE_AFTER_MIN:
                 from .config import load_settings
                 s = load_settings()
-                from . import providers as pv
-                if pv.configured(s):
+                from . import providers as pv, budget, brain
+                if pv.configured(s) and budget.can_spend("background"):
+                    brain.set_call_kind("background")
                     await think_once()
+                    brain.set_call_kind("operator")
         except Exception as e:
             from . import selfdev
             selfdev.record_error("idle.loop", e)

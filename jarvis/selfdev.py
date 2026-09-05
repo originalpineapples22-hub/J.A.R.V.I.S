@@ -29,6 +29,7 @@ SNAPSHOT_DIR = DATA_DIR / "snapshots"
 SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 # never auto-rewritten: security, settings and the self-repair machinery itself
+_pending = {}
 PROTECTED = {"config.py", "selfdev.py", "server.py", "__init__.py"}
 ERROR_LOG = DATA_DIR / "errors.jsonl"
 
@@ -120,6 +121,12 @@ def self_test() -> tuple:
 # ---------------------------------------------------------------- patching
 async def propose_and_apply(rel: str, instruction: str, apply: bool = True) -> str:
     """Have the model rewrite one of its own files, then verify and apply or roll back."""
+    from .config import load_settings
+    _s = load_settings()
+    if _s.get("safe_mode"):
+        return "Safe mode is on, sir — I will not modify my own code. Turn it off in Settings if you want me to."
+    if _s.get("require_approval_for_self_edit", True) and apply:
+        apply = False          # draft and verify, but wait for the operator's word
     name = Path(rel).name
     if name in PROTECTED:
         return f"'{rel}' is protected and cannot be modified automatically, sir. I can suggest a change for you to review instead."
@@ -146,7 +153,13 @@ async def propose_and_apply(rel: str, instruction: str, apply: bool = True) -> s
     except SyntaxError as e:
         return f"My drafted change had a syntax error ({e}) — discarded, nothing was touched."
     if not apply:
-        return f"Proposed change for {rel} ({len(new)} chars) is syntactically valid. Say 'apply it' to install."
+        _pending["file"] = rel
+        _pending["code"] = new
+        _pending["why"] = instruction
+        return (f"I have prepared a change to `{rel}` and checked it compiles ({len(new)} chars).\n"
+                f"**Purpose:** {instruction[:200]}\n\n"
+                "It is NOT applied yet. Say **'apply the change'** and I will install it with a snapshot, "
+                "verify it, and roll back automatically if anything fails.")
 
     snap = _snapshot(rel)
     (PKG / rel).write_text(new, encoding="utf-8")
@@ -216,3 +229,25 @@ async def auto_repair(force: bool = False) -> str:
         return f"Auto-repair on {rel} (attempt {n}):\n{result}"
     return (f"Auto-repair attempt {n} on {rel} did not hold — I rolled myself back.\n"
             f"**Where:** {d['where']}\n**Error:** {d['type']}: {d['message'][:200]}\n\n{result[-400:]}")
+
+
+async def apply_pending() -> str:
+    """Install the change the operator approved, with the full verification gauntlet."""
+    if not _pending.get("file"):
+        return "Nothing is waiting for approval, sir."
+    rel, new, why = _pending["file"], _pending["code"], _pending.get("why", "")
+    _pending.clear()
+    snap = _snapshot(rel)
+    (PKG / rel).write_text(new, encoding="utf-8")
+    ok_i, out_i = await asyncio.to_thread(_import_check)
+    ok_t, out_t = (await asyncio.to_thread(self_test)) if ok_i else (False, out_i)
+    if ok_i and ok_t:
+        memory.add_event("system", f"Approved self-patch applied to {rel}")
+        memory.remember(f"Operator approved a self-modification of {rel}: {why[:200]}", kind="selfdev")
+        return f"Applied to {rel} and verified — imports clean, all self-tests pass. Snapshot {snap.name} kept."
+    shutil.copy(snap, PKG / rel)
+    return f"The approved change failed verification, so I rolled back automatically. Nothing is damaged.\n{(out_t or out_i)[-500:]}"
+
+
+def pending_change():
+    return {"file": _pending.get("file"), "why": _pending.get("why", "")} if _pending.get("file") else None

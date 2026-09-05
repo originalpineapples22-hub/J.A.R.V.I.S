@@ -20,6 +20,12 @@ TEXT_EXT = {".txt", ".md", ".py", ".js", ".ts", ".json", ".yml", ".yaml", ".html
             ".csv", ".sh", ".c", ".cpp", ".java", ".go", ".rs", ".sql", ".xml", ".toml", ".ini", ".log"}
 
 
+def _guard_destructive():
+    from ..config import load_settings
+    if load_settings().get("safe_mode"):
+        raise PermissionError("Safe mode is on — deletions and overwrites are blocked")
+
+
 def _safe(p: str) -> Path:
     """Resolve a path and refuse anything outside the workspace."""
     q = Path(p).expanduser()
@@ -149,6 +155,7 @@ def manage_file(args, ctx):
         if action == "mkdir":
             p.mkdir(parents=True, exist_ok=True); return f"Created folder {p.name}."
         if action == "delete":
+            _guard_destructive()
             if p.is_dir():
                 shutil.rmtree(p)
             else:

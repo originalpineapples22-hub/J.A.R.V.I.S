@@ -136,6 +136,19 @@ async def _run(mid: int):
                 log(mid, f"Stalled: {stall}")
                 await _ask_operator(mid, guard.report(stall, extra=f"Mission #{mid} is stuck on step {step + 1}."))
                 return
+            # drift check every third step: is this still serving the goal?
+            if (step + 1) % 3 == 0:
+                try:
+                    verdict = await brain.complete([{"role": "user", "content":
+                        f"GOAL: {m['goal']}\n\nPROGRESS LOG:\n{(get(mid) or {}).get('log','')[-2000:]}\n\n"
+                        "Is this work still serving the goal? Reply ON TRACK, or DRIFTING followed by one line saying how."}],
+                        temperature=0.1, timeout=90)
+                    if "DRIFTING" in verdict.upper():
+                        log(mid, f"Drift detected: {verdict[:200]}")
+                        await _ask_operator(mid, f"I may be drifting from the goal.\n{verdict[:300]}\n\nShould I continue, or change approach?")
+                        return
+                except Exception:
+                    pass
             update(mid, step=step + 1, answer="")
             await asyncio.sleep(2)
 

@@ -7,8 +7,17 @@ import time
 import httpx
 from .config import load_settings
 from . import providers as pv
+from . import budget
 
 GROQ_BASE = "https://api.groq.com/openai/v1"
+_CALL_KIND = {"kind": "operator"}
+
+
+def set_call_kind(kind: str):
+    """Tag subsequent calls as 'operator' or 'background' for budgeting."""
+    _CALL_KIND["kind"] = kind
+
+
 _model_cache = {"key": None, "ts": 0.0, "models": []}
 _EXCLUDE = ("whisper", "tts", "guard", "embed", "moderation", "safety", "compound", "orpheus")
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
@@ -110,6 +119,7 @@ async def _stream_raw(messages, temperature, settings, timeout):
         tried.append(pid)
         try:
             got = False
+            budget.record(_CALL_KIND.get("kind", "operator"))
             async for tok in _stream_one(pid, base, key, model, messages, temperature, timeout):
                 got = True
                 yield tok

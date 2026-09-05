@@ -43,6 +43,10 @@ DEFAULTS = {
     "webhooks": "{}",
     "embed_model": "text-embedding-3-small",
     "semantic_memory": True,
+    "daily_call_budget": 900,          # model calls per day before background work stops
+    "background_share": 0.35,          # share of the day background work may use
+    "require_approval_for_self_edit": True,
+    "safe_mode": False,                # True = no self-modification, no file deletion, no PC control
     # --- free brain pool (add any, it uses the best available and fails over)
     "github_models_key": "",
     "gemini_key": "",

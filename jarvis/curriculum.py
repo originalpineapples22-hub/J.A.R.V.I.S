@@ -87,7 +87,7 @@ def progress() -> dict:
 
 
 # ---------------------------------------------------------------- autonomous learner
-_auto = {"enabled": True, "current": None, "studied": 0}
+_auto = {"enabled": False, "current": None, "studied": 0}   # OFF until the operator turns it on
 
 
 def auto_state():
@@ -107,7 +107,9 @@ async def autonomous_loop():
         try:
             s = load_settings()
             key_ok = bool(s.get("groq_api_key") or s.get("openai_api_key") or s.get("provider") == "ollama")
-            if _auto["enabled"] and key_ok and not learn_status():
+            from . import budget, brain
+            if _auto["enabled"] and key_ok and not learn_status() and budget.can_spend("background"):
+                brain.set_call_kind("background")
                 topic = next_topic()
                 if topic:
                     _auto["current"] = topic
@@ -118,7 +120,8 @@ async def autonomous_loop():
                         await asyncio.sleep(10)
                     _auto["studied"] += 1
                     _auto["current"] = None
+                    brain.set_call_kind("operator")
         except Exception as e:
             memory.add_event("system", f"Self-study loop error: {e}")
         # gentle pacing so the free API tier is never hammered
-        await asyncio.sleep(random.randint(600, 900))
+        await asyncio.sleep(random.randint(1800, 3600))   # gentle: at most ~2 topics/hour

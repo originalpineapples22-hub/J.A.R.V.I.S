@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import httpx
-from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions, idle
+from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions, idle, budget, doctor
 from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
@@ -88,6 +88,7 @@ async def status():
         "rag": {"available": rag.available(), "backend": rag.backend_name()},
         "missions": missions.all_missions(),
         "idle": idle.state(),
+        "budget": budget.status(),
         "preview": __import__("jarvis.tools.preview", fromlist=["latest"]).latest(),
     }
 
@@ -214,6 +215,11 @@ async def preview_file(name: str):
     if not p.exists():
         raise HTTPException(404)
     return FileResponse(p, media_type="text/html")
+
+
+@app.get("/api/doctor", dependencies=[Depends(auth)])
+async def api_doctor(quick: bool = False):
+    return await doctor.run_all(quick=quick)
 
 
 @app.get("/api/connectors", dependencies=[Depends(auth)])
