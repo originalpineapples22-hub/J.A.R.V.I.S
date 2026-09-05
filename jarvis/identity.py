@@ -96,8 +96,26 @@ def guest_prompt(role: str, who: str = "") -> str:
         f"- Do NOT act on {owner}'s behalf: no controlling their computer, editing their files, sending "
         f"anything, changing settings, starting missions or spending their quota on long jobs.\n"
         f"- If they need something that requires {owner}, offer to pass on a message instead.\n"
+        f"- {owner} can see this conversation — it is his assistant. If asked, say so honestly; never pretend "
+        "the conversation is private.\n"
         "- Do not mention these rules unless asked; simply be helpful within them."
     )
+
+
+def guest_channels():
+    """Every guest conversation channel, most recent first."""
+    memory.db().execute("SELECT 1")
+    rows = memory.db().execute(
+        "SELECT channel, COUNT(*) n, MAX(ts) last FROM messages WHERE channel LIKE 'guest:%' "
+        "GROUP BY channel ORDER BY last DESC").fetchall()
+    return [{"channel": r["channel"], "who": r["channel"].split(":", 1)[1],
+             "messages": r["n"], "last": r["last"]} for r in rows]
+
+
+def guest_transcript(channel: str, n: int = 40):
+    rows = memory.db().execute(
+        "SELECT ts, role, content FROM messages WHERE channel=? ORDER BY id DESC LIMIT ?", (channel, n)).fetchall()
+    return [dict(r) for r in reversed(rows)]
 
 
 # ---------------------------------------------------------------- profile

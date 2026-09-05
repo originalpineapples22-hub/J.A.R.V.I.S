@@ -94,8 +94,7 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
     role = ctx.get("role", "owner")
     who = ctx.get("who", "")
     s = load_settings()
-    if role == "owner":
-        memory.add_message(channel, "user", user_text)
+    memory.add_message(channel, "user", user_text)   # guests use their own channel (guest:<name>)
     history = memory.recent_messages(channel, n=12)
     sysmsg = build_system(channel, user_text, role, who)
     sem = await semantic_context(user_text) if role == "owner" else ""
@@ -154,10 +153,10 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
         messages.append({"role": "user", "content": "TOOL RESULTS:\n" + "\n\n".join(results) + "\n\nContinue your answer for the operator (do not repeat the tool call unless needed)."})
         yield {"type": "token", "text": "\n\n"}
     final = "\n\n".join(p for p in final_parts if p).strip() or "Done, sir."
+    memory.add_message(channel, "assistant", final)
     if role != "owner":
         yield {"type": "final", "text": final}
         return
-    memory.add_message(channel, "assistant", final)
     exchange = f"Operator: {user_text[:400]}\n0.5.4.M.4: {final[:600]}"
     memory.remember(exchange)
     try:

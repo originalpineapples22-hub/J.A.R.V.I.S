@@ -256,6 +256,14 @@ async def household_add(req: Request):
     return {"message": identity.add_person(d.get("name", ""), d.get("role", "family"), d.get("note", ""))}
 
 
+@app.get("/api/household/activity", dependencies=[Depends(auth)])
+async def household_activity(who: str = None, limit: int = 40):
+    if who:
+        ch = next((c for c in identity.guest_channels() if c["who"].lower() == who.lower()), None)
+        return {"who": who, "messages": identity.guest_transcript(ch["channel"], limit) if ch else []}
+    return {"channels": identity.guest_channels()}
+
+
 @app.get("/api/identity", dependencies=[Depends(auth)])
 async def api_identity():
     return identity.status()

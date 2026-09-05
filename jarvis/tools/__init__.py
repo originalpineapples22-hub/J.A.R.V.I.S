@@ -52,4 +52,4 @@ def agents_status() -> list:
 
 
 # import plugins so they register
-from . import system, web, files, learn, pc, office, science, invent, live, music, dev, search, actions, reason, filesystem, mission_tools, preview, research, interpreter, create_media, skill_tools, health, identity_tools, household  # noqa: E402,F401
+from . import system, web, files, learn, pc, office, science, invent, live, music, dev, search, actions, reason, filesystem, mission_tools, preview, research, interpreter, create_media, skill_tools, health, identity_tools, household, household_view  # noqa: E402,F401
