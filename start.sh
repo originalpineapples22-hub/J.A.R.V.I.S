@@ -56,6 +56,26 @@ if [ ! -f "$root/.env" ] && [ -f "$root/.env.example" ]; then
     printf '\n  \033[33mCreated .env — add a free brain key to it when you have one.\033[0m\n'
 fi
 
+# --- is an older copy still holding the port? ----------------------------
+# A server left running from an earlier attempt keeps serving its old files,
+# so a fresh start silently changes nothing and the fix looks like it failed.
+if (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
+    # Ask the port who owns it. Matching on a command line instead would also
+    # match any unrelated process that merely mentions jarvis.server.
+    old_pid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1)"
+    if [ -z "$old_pid" ]; then
+        old_pid="$(ss -ltnpH 'sport = :8080' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)"
+    fi
+    if [ -n "$old_pid" ] && tr '\0' ' ' < "/proc/$old_pid/cmdline" 2>/dev/null | grep -q 'jarvis\.server'; then
+        printf '  \033[33man older 0.5.4.M.4 was still running (pid %s) - stopping it\033[0m\n' "$old_pid"
+        kill "$old_pid" 2>/dev/null || true
+        sleep 2
+    else
+        fail "Port 8080 is already taken by something that is not 0.5.4.M.4.
+     Find it with:  lsof -i :8080     then stop that program."
+    fi
+fi
+
 if ! out="$("$venv" -c 'import jarvis.server' 2>&1)"; then
     printf '\n\033[90m%s\033[0m\n' "$out"
     fail "0.5.4.M.4 could not load. The real reason is the last line above."

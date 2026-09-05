@@ -136,6 +136,30 @@ if ($LASTEXITCODE -ne 0) {
     Fail "0.5.4.M.4 could not load. The real reason is the last line above."
 }
 
+# --- 8b. is an older copy still holding the port? -------------------------
+# A server left running from an earlier attempt keeps serving its old files,
+# so a fresh start silently changes nothing and the fix looks like it failed.
+$busy = $null
+try { $busy = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { }
+if ($busy) {
+    $owner = $null
+    try { $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($busy.OwningProcess)" -ErrorAction SilentlyContinue } catch { }
+    $cmd = if ($owner) { "$($owner.CommandLine)" } else { "" }
+    if ($cmd -match "jarvis\.server") {
+        Write-Host "  an older 0.5.4.M.4 was still running - stopping it" -ForegroundColor Yellow
+        Stop-Process -Id $busy.OwningProcess -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    } else {
+        $who = if ($owner) { "$($owner.Name) (PID $($busy.OwningProcess))" } else { "PID $($busy.OwningProcess)" }
+        Fail @"
+Port 8080 is already taken by $who, which is not 0.5.4.M.4.
+
+Close that program, or stop it with:
+  Stop-Process -Id $($busy.OwningProcess) -Force
+"@
+    }
+}
+
 # --- 9. your key ----------------------------------------------------------
 $envFile = Join-Path $root ".env"
 if (Test-Path $envFile) {
