@@ -90,6 +90,22 @@ def save_settings(new: dict):
     SETTINGS_FILE.write_text(json.dumps(cur, indent=2), encoding="utf-8")
 
 
+def guest_token() -> str:
+    """A second, limited token the operator can share with family."""
+    f = DATA_DIR / "guest_token.txt"
+    if not f.exists():
+        import secrets
+        f.write_text(secrets.token_urlsafe(12), encoding="utf-8")
+    return f.read_text(encoding="utf-8").strip()
+
+
+def rotate_guest_token() -> str:
+    import secrets
+    f = DATA_DIR / "guest_token.txt"
+    f.write_text(secrets.token_urlsafe(12), encoding="utf-8")
+    return f.read_text(encoding="utf-8").strip()
+
+
 def operator_token() -> str:
     """Single-operator access token. Set JARVIS_TOKEN on the server; generated once otherwise."""
     tok = os.environ.get("JARVIS_TOKEN", "").strip()

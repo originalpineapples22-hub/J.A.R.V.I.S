@@ -37,10 +37,14 @@ async def semantic_context(user_text: str) -> str:
     return ""
 
 
-def build_system(channel: str, user_text: str) -> str:
+def build_system(channel: str, user_text: str, role: str = "owner", who: str = "") -> str:
     s = load_settings()
     sysmsg = PERSONA.format(ai_name=s.get("assistant_name", "J.A.R.V.I.S."), style=s.get("assistant_style", "calm and precise"),
                             name=s.get("operator_name", "sir"), tools=manifest())
+    if role != "owner":
+        # Guests get the persona and their own rules — and none of the
+        # operator's memory, knowledge, skills, profile or tasks.
+        return sysmsg + identity.guest_prompt(role, who)
     summ = memory.get_summary(channel)
     if summ:
         sysmsg += f"\n\nCONVERSATION SO FAR (summary): {summ}"
@@ -87,11 +91,14 @@ async def maybe_summarize(channel: str):
 async def run(user_text: str, channel: str = "web", ctx: dict = None):
     """Async generator of agent events."""
     ctx = ctx or {}
+    role = ctx.get("role", "owner")
+    who = ctx.get("who", "")
     s = load_settings()
-    memory.add_message(channel, "user", user_text)
+    if role == "owner":
+        memory.add_message(channel, "user", user_text)
     history = memory.recent_messages(channel, n=12)
-    sysmsg = build_system(channel, user_text)
-    sem = await semantic_context(user_text)
+    sysmsg = build_system(channel, user_text, role, who)
+    sem = await semantic_context(user_text) if role == "owner" else ""
     if sem:
         sysmsg += "\n\nSEMANTIC MEMORY (recalled by meaning):\n" + sem
     messages = [{"role": "system", "content": sysmsg}] + history
@@ -137,12 +144,19 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
                 args = {"_raw": raw_args}
             t = get_tool(name)
             yield {"type": "tool", "name": name, "args": args}
-            res = await t.run(args, ctx) if t else f"Unknown tool '{name}'."
+            if not identity.allowed(name, role):
+                res = (f"'{name}' is reserved for the operator. Politely explain you cannot do that "
+                       "for a guest, and offer an alternative.")
+            else:
+                res = await t.run(args, ctx) if t else f"Unknown tool '{name}'."
             results.append(f"[RESULT of {name}]\n{res}")
         messages.append({"role": "assistant", "content": buf})
         messages.append({"role": "user", "content": "TOOL RESULTS:\n" + "\n\n".join(results) + "\n\nContinue your answer for the operator (do not repeat the tool call unless needed)."})
         yield {"type": "token", "text": "\n\n"}
     final = "\n\n".join(p for p in final_parts if p).strip() or "Done, sir."
+    if role != "owner":
+        yield {"type": "final", "text": final}
+        return
     memory.add_message(channel, "assistant", final)
     exchange = f"Operator: {user_text[:400]}\n0.5.4.M.4: {final[:600]}"
     memory.remember(exchange)

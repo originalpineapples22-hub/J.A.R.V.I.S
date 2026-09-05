@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 import httpx
 from . import __version__, memory, agent, brain, learning, speech, curriculum, selfdev, rag, missions, idle, budget, doctor, identity
-from .config import load_settings, save_settings, operator_token, ROOT, FILES_DIR, DEFAULTS
+from .config import load_settings, save_settings, operator_token, guest_token, rotate_guest_token, ROOT, FILES_DIR, DEFAULTS
 from .push import vapid_keys, notify_all
 from .scheduler import loop as scheduler_loop
 from .tools import agents_status
@@ -24,10 +24,20 @@ app = FastAPI(title="J.A.R.V.I.S.", version=__version__)
 
 
 def auth(request: Request, token: str = Query(default=None)):
+    """Owner-only endpoints."""
     tok = request.headers.get("X-JARVIS-TOKEN") or token
     if tok != operator_token():
         raise HTTPException(401, "Access denied, sir.")
     return True
+
+
+def whoami(token: str) -> str:
+    """owner | family | (None) for an invalid token."""
+    if token == operator_token():
+        return "owner"
+    if token and token == guest_token():
+        return "family"
+    return None
 
 
 @app.on_event("startup")
@@ -103,17 +113,20 @@ async def history(channel: str = "web", n: int = 30):
 @app.websocket("/ws/chat")
 async def ws_chat(ws: WebSocket):
     await ws.accept()
-    if ws.query_params.get("token") != operator_token():
-        await ws.send_text(json.dumps({"type": "error", "text": "Access denied, sir."}))
+    role = whoami(ws.query_params.get("token"))
+    if not role:
+        await ws.send_text(json.dumps({"type": "error", "text": "Access denied."}))
         await ws.close()
         return
+    who = ws.query_params.get("who", "")
     try:
         while True:
             data = json.loads(await ws.receive_text())
             text = str(data.get("text", "")).strip()
             if not text:
                 continue
-            async for ev in agent.run(text, channel=data.get("channel", "web")):
+            channel = data.get("channel", "web") if role == "owner" else f"guest:{who or 'family'}"
+            async for ev in agent.run(text, channel=channel, ctx={"role": role, "who": who}):
                 await ws.send_text(json.dumps(ev))
     except WebSocketDisconnect:
         pass
@@ -216,6 +229,31 @@ async def preview_file(name: str):
     if not p.exists():
         raise HTTPException(404)
     return FileResponse(p, media_type="text/html")
+
+
+@app.get("/api/guest/status")
+async def guest_status(token: str = Query(default=None)):
+    role = whoami(token)
+    if not role:
+        raise HTTPException(401, "Access denied.")
+    return {"role": role, "name": identity.status().get("name") if role == "owner" else None,
+            "assistant": load_settings().get("assistant_name", "0.5.4.M.4")}
+
+
+@app.get("/api/household", dependencies=[Depends(auth)])
+async def household():
+    return {"people": identity.people(), "guest_token": guest_token(),
+            "public_tools": sorted(identity.PUBLIC_TOOLS)}
+
+
+@app.post("/api/household", dependencies=[Depends(auth)])
+async def household_add(req: Request):
+    d = await req.json()
+    if d.get("remove"):
+        return {"message": identity.remove_person(d["remove"])}
+    if d.get("rotate"):
+        return {"message": "Guest link replaced.", "guest_token": rotate_guest_token()}
+    return {"message": identity.add_person(d.get("name", ""), d.get("role", "family"), d.get("note", ""))}
 
 
 @app.get("/api/identity", dependencies=[Depends(auth)])

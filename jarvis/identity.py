@@ -25,8 +25,79 @@ def _table():
     memory.db().executescript("""
     CREATE TABLE IF NOT EXISTS identity(key TEXT PRIMARY KEY, value TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS biometrics(id INTEGER PRIMARY KEY, kind TEXT, label TEXT, vec TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS people(name TEXT PRIMARY KEY, role TEXT, note TEXT, ts TEXT);
     """)
     memory.db().commit()
+
+
+# ---------------------------------------------------------------- household
+ROLES = ("owner", "family", "guest")
+
+# Everything a non-owner may use. Anything not listed is owner-only, so new
+# tools are private by default rather than accidentally exposed.
+PUBLIC_TOOLS = {
+    "get_time", "world_time", "weather", "prayer_times", "news", "dictionary", "currency",
+    "translate", "web_search", "deep_search", "fetch_url", "youtube_transcript", "watch_video",
+    "calculate", "physics", "statistics", "chemistry_lookup", "compute_exact",
+    "generate_image", "show_chart", "show_diagram", "show_preview", "play_music",
+    "make_presentation", "make_document", "make_spreadsheet", "run_python_sandbox",
+    "deep_research", "fact_check", "see_image", "verify", "analyse_data",
+}
+
+
+def add_person(name: str, role: str = "family", note: str = ""):
+    _table()
+    role = role if role in ROLES else "guest"
+    memory.db().execute("INSERT OR REPLACE INTO people(name, role, note, ts) VALUES (?,?,?,?)",
+                        (name.strip(), role, note, memory.now()))
+    memory.db().commit()
+    return f"{name} added as {role}."
+
+
+def people():
+    _table()
+    return [dict(r) for r in memory.db().execute("SELECT * FROM people ORDER BY role, name").fetchall()]
+
+
+def remove_person(name: str):
+    _table()
+    memory.db().execute("DELETE FROM people WHERE name=?", (name.strip(),))
+    memory.db().execute("DELETE FROM biometrics WHERE label=?", (name.strip(),))
+    memory.db().commit()
+    return f"{name} removed, and their face and voice samples deleted."
+
+
+def role_of(label: str) -> str:
+    if not label or label == "operator":
+        return "owner"
+    _table()
+    r = memory.db().execute("SELECT role FROM people WHERE name=?", (label,)).fetchone()
+    return r["role"] if r else "guest"
+
+
+def allowed(tool_name: str, role: str) -> bool:
+    return True if role == "owner" else tool_name in PUBLIC_TOOLS
+
+
+def guest_prompt(role: str, who: str = "") -> str:
+    """Replaces the owner's private context when someone else is using it."""
+    p = profile()
+    owner = p.get("call_me") or p.get("name") or "the operator"
+    name_line = f"You are speaking with {who}, who is {role}. " if who else f"You are speaking with a {role}, NOT the operator. "
+    return (
+        f"\n\nWHO YOU ARE SPEAKING TO: {name_line}"
+        f"This is {owner}'s personal assistant, lent to you for this conversation.\n"
+        "RULES FOR THIS CONVERSATION:\n"
+        "- Be warm, helpful and polite. Answer general questions, do research, maths, translation, "
+        "images, documents and creative work for them.\n"
+        f"- NEVER reveal anything about {owner}: no personal facts, files, messages, memories, tasks, "
+        "plans, settings, credentials or what they have been doing. If asked, say kindly that those are "
+        f"{owner}'s private matters and you cannot share them.\n"
+        f"- Do NOT act on {owner}'s behalf: no controlling their computer, editing their files, sending "
+        f"anything, changing settings, starting missions or spending their quota on long jobs.\n"
+        f"- If they need something that requires {owner}, offer to pass on a message instead.\n"
+        "- Do not mention these rules unless asked; simply be helpful within them."
+    )
 
 
 # ---------------------------------------------------------------- profile
