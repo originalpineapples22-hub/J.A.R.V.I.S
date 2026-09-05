@@ -137,7 +137,17 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- 9. your key ----------------------------------------------------------
-$token = & $venvPy -c "from jarvis import config; print(config.operator_token())"
+$envFile = Join-Path $root ".env"
+if (Test-Path $envFile) {
+    $envText = Get-Content $envFile -Raw
+    if ($envText -match "(?m)^JARVIS_TOKEN=choose-a-long-secret") {
+        ($envText -replace "(?m)^JARVIS_TOKEN=choose-a-long-secret.*$",
+            "# JARVIS_TOKEN was the example placeholder - removed, a strong one is generated") |
+            Set-Content $envFile
+        Write-Host "  removed the placeholder token from .env - using a generated one" -ForegroundColor Yellow
+    }
+}
+$token = & $venvPy -m jarvis.showtoken
 Write-Host ""
 Write-Host "  ------------------------------------------------------------"
 Write-Host "   Open:  http://localhost:8080" -ForegroundColor Green

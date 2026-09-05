@@ -61,7 +61,12 @@ if ! out="$("$venv" -c 'import jarvis.server' 2>&1)"; then
     fail "0.5.4.M.4 could not load. The real reason is the last line above."
 fi
 
-token="$("$venv" -c 'from jarvis import config; print(config.operator_token())')"
+if [ -f "$root/.env" ] && grep -q '^JARVIS_TOKEN=choose-a-long-secret' "$root/.env"; then
+    sed -i.bak 's/^JARVIS_TOKEN=choose-a-long-secret/# JARVIS_TOKEN was the example placeholder — removed, a strong one is generated/' "$root/.env"
+    rm -f "$root/.env.bak"
+    printf '  \033[33mremoved the placeholder token from .env — using a generated one\033[0m\n'
+fi
+token="$("$venv" -m jarvis.showtoken)"
 printf '\n  ------------------------------------------------------------\n'
 printf '   \033[32mOpen:  http://localhost:8080\033[0m\n'
 printf '   \033[32mToken: %s\033[0m\n' "$token"
