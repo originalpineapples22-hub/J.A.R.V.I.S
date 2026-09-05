@@ -1,0 +1,7 @@
+# Optional — each adds a capability. Installed best-effort; a failure here
+# never blocks the install, and the matching feature degrades gracefully.
+pywebpush          # push notifications to phone/watch (needs a C compiler)
+py-vapid           # keys for the above
+fastembed          # semantic memory (large download; slow on small ARM VMs)
+yt-dlp             # reels, TikTok, social video
+playwright         # autonomous browsing of JavaScript-heavy sites
