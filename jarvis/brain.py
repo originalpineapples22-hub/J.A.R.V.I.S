@@ -52,6 +52,64 @@ async def groq_models(key: str):
     return models
 
 
+def _short_error(e) -> str:
+    """One readable line per provider, so a failure names its own cause.
+
+    Reporting only the last provider's error hid why the earlier ones failed —
+    an expired key and a retired model look identical from the outside.
+    """
+    msg = str(e).strip().replace("\n", " ")
+    m = re.search(r'"message"\s*:\s*"([^"]{3,200})"', msg)
+    if m:
+        detail = m.group(1)
+    else:
+        detail = msg[:200]
+    code = re.search(r"HTTP (\d{3})", msg)
+    if code:
+        hint = {"401": "key rejected — check it was pasted whole",
+                "403": "key lacks access to this model",
+                "404": "model no longer offered",
+                "429": "free allowance used up for now"}.get(code.group(1), "")
+        return f"HTTP {code.group(1)} {hint or ''} — {detail}".strip()
+    return detail or "no response"
+
+
+_or_cache = {"key": "", "ts": 0.0, "models": []}
+
+
+async def openrouter_free_models(key: str):
+    """The models OpenRouter is giving away *today*.
+
+    Its free line-up changes: a slug that was free last month starts answering
+    404 with "use the paid version instead". Asking the catalogue for models
+    priced at zero keeps the free tier working without anyone editing a list.
+    """
+    key = (key or "").strip()
+    if not key:
+        return []
+    if _or_cache["key"] == key and time.time() - _or_cache["ts"] < 900:
+        return _or_cache["models"]
+    models = []
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get("https://openrouter.ai/api/v1/models",
+                            headers={"Authorization": f"Bearer {key}"})
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                pr = m.get("pricing") or {}
+                try:
+                    free = float(pr.get("prompt", 1) or 0) == 0 and float(pr.get("completion", 1) or 0) == 0
+                except (TypeError, ValueError):
+                    free = False
+                mid = m.get("id", "")
+                if free and mid and not any(x in mid.lower() for x in _EXCLUDE):
+                    models.append(mid)
+    except Exception:
+        models = []
+    _or_cache.update(key=key, ts=time.time(), models=models)
+    return models
+
+
 def pick_model(models, vision=False):
     if not models:
         return None
@@ -109,11 +167,16 @@ async def _stream_raw(messages, temperature, settings, timeout):
     """Try each configured provider in turn; a rate-limited or failing provider
     is put on cooldown and the next one takes over, so the free tiers add up."""
     s = settings or load_settings()
-    tried, last_err = [], None
+    tried, errors = [], []
     for pid in pv.order(s):
         base, key, model = pv.resolve(pid, s)
         if pid == "groq" and not model:
             model = pick_model(await groq_models(key)) or ""
+        if pid == "openrouter":
+            free = await openrouter_free_models(key)
+            # Only keep the configured model if OpenRouter still gives it away.
+            if free and model not in free:
+                model = pick_model(free) or model
         if not model or (pid not in ("ollama",) and not key):
             continue
         tried.append(pid)
@@ -127,16 +190,21 @@ async def _stream_raw(messages, temperature, settings, timeout):
                 pv.clear_cooldown(pid)
                 return
         except Exception as e:
-            last_err = f"{pid}: {e}"
+            errors.append(f"{pid}: {_short_error(e)}")
             msg = str(e)
             if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
                 pv.cool_off(pid, 900)      # rate-limited: rest for 15 minutes
             else:
                 pv.cool_off(pid, 120)
             continue
+    if not tried:
+        raise RuntimeError(
+            "No brain available — no provider is configured. Add a free key in Settings: "
+            "GitHub Models (github.com/settings/tokens), Gemini (aistudio.google.com/apikey), "
+            "Cerebras (cloud.cerebras.ai) or Groq (console.groq.com).")
     raise RuntimeError(
-        f"No brain available. Tried: {', '.join(tried) or 'none configured'}. "
-        f"Add a free key in Settings (GitHub Models, Gemini, Cerebras or Groq). Last error — {last_err}")
+        "No brain available. Every provider refused:\n  " + "\n  ".join(errors) +
+        "\nFix whichever is closest, or add another free key in Settings.")
 
 
 async def _stream_one(pid, base, key, model, messages, temperature, timeout):
