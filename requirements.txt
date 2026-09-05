@@ -17,3 +17,4 @@ edge-tts
 numpy
 # optional, big wins: fastembed (semantic memory), playwright (autonomous browsing)
 fastembed
+yt-dlp

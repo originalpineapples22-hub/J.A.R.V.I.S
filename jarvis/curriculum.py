@@ -36,7 +36,19 @@ HARDWARE_MAKER = [
     "PCB design with KiCad", "Signal processing", "Control systems", "Mechatronics",
     "Blender 3D", "Unity game engine", "Unreal Engine", "Godot engine", "Game development",
 ]
-CATALOG = LANGUAGES + FRAMEWORKS + SYSTEMS + AI_DATA + HARDWARE_MAKER
+FINANCE = [
+    "Personal finance and budgeting", "Investing fundamentals", "Stock market analysis",
+    "Fundamental analysis and company valuation", "Technical analysis", "Portfolio theory and diversification",
+    "Risk management and position sizing", "Bonds and fixed income", "Index funds and ETFs",
+    "Banking systems and how banks make money", "Central banking and monetary policy",
+    "Interest rates, inflation and the yield curve", "Islamic finance and sukuk",
+    "Cryptocurrency and blockchain", "Real estate investment", "Accounting and financial statements",
+    "Business models and unit economics", "Startup fundraising", "Digital marketing and growth",
+    "E-commerce operations", "Taxation basics", "Behavioural finance and investor psychology",
+    "Quantitative trading and backtesting", "Economics: micro and macro",
+]
+
+CATALOG = LANGUAGES + FRAMEWORKS + SYSTEMS + AI_DATA + HARDWARE_MAKER + FINANCE
 
 # Studied first — the foundation everything else builds on.
 PRIORITY = [
@@ -44,6 +56,7 @@ PRIORITY = [
     "SQL", "Linux administration", "React", "Node.js", "Docker", "System design",
     "Bash scripting", "REST API design", "C", "C++", "Rust", "Go", "Java",
     "Machine learning", "Large language models and prompt engineering",
+    "Investing fundamentals", "Personal finance and budgeting", "Banking systems and how banks make money",
 ]
 
 

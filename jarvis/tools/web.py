@@ -54,6 +54,59 @@ async def fetch_url(args, ctx):
 _YT_RE = re.compile(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})")
 
 
+@tool("watch_video",
+      "Watch and understand a video from YouTube, Instagram reels, TikTok, X/Twitter, Facebook or a direct link — returns its captions/transcript plus title and description so questions about it can be answered.",
+      {"url": "video link"}, agent="Browser Agent")
+async def watch_video(args, ctx):
+    url = (args.get("url") or "").strip()
+    if not url:
+        return "Give me the video link, sir."
+    # YouTube has a fast caption API
+    if _YT_RE.search(url):
+        t = await youtube_transcript({"url": url}, ctx)
+        if not t.startswith("Transcript unavailable"):
+            return t
+    try:
+        import yt_dlp
+    except Exception:
+        return ("To watch reels and social videos I need the media reader installed on the server: "
+                "`pip install yt-dlp`. YouTube already works without it.")
+
+    def _extract():
+        opts = {"quiet": True, "skip_download": True, "no_warnings": True,
+                "writesubtitles": True, "writeautomaticsub": True, "subtitleslangs": ["en", "ar"]}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+    try:
+        info = await asyncio.to_thread(_extract)
+    except Exception as e:
+        return f"Could not read that video: {e}"
+
+    parts = [f"TITLE: {info.get('title','')}",
+             f"CHANNEL: {info.get('uploader') or info.get('channel','')}",
+             f"DURATION: {info.get('duration','?')}s",
+             f"DESCRIPTION: {(info.get('description') or '')[:1500]}"]
+    subs = info.get("subtitles") or info.get("automatic_captions") or {}
+    track = subs.get("en") or subs.get("ar") or (list(subs.values())[0] if subs else None)
+    if track:
+        vtt = next((t for t in track if t.get("ext") in ("vtt", "srv1", "json3")), track[0])
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.get(vtt["url"])
+            text = re.sub(r"<[^>]+>", " ", r.text)
+            text = re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d+ --> [^\n]+", " ", text)
+            text = re.sub(r"(WEBVTT|Kind:|Language:)[^\n]*", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            if len(text) > 50:
+                parts.append("TRANSCRIPT: " + text[:9000])
+        except Exception:
+            pass
+    if len(parts) == 4:
+        parts.append("(No captions on this video — I can describe it from the title and description, "
+                     "or you can screenshot a frame and I will look at it.)")
+    return "\n".join(parts)
+
+
 @tool("youtube_transcript", "Get the transcript of a YouTube video so questions about it can be answered.", {"url": "YouTube URL or video id"}, agent="Browser Agent")
 async def youtube_transcript(args, ctx):
     url = args.get("url", "")

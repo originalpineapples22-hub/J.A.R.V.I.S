@@ -2,6 +2,7 @@
 """Science sandbox: symbolic math/physics calculations and chemistry lookups (PubChem).
 A simulation & reference sandbox — not a lab. Safety notes are always included."""
 import math
+import re
 import asyncio
 import httpx
 from . import tool
@@ -93,3 +94,99 @@ async def chemistry_lookup(args, ctx):
                 f"GHS hazards: {hazards}." + SAFETY)
     except Exception as e:
         return f"Chemistry lookup failed: {e}"
+
+
+@tool("statistics",
+      "Statistics and probability done properly: descriptive stats, distributions, probability, hypothesis tests, correlation, regression, confidence intervals, combinatorics, Bayes.",
+      {"operation": "describe|probability|test|correlate|regress|interval|combinatorics|bayes",
+       "data": "numbers, or two lists for correlate/regress", "params": "{...} e.g. {'dist':'normal','mu':0,'sigma':1,'x':1.96}"},
+      agent="Research Agent")
+def statistics(args, ctx):
+    import math
+    op = (args.get("operation") or "describe").lower()
+    p = args.get("params") or {}
+    if isinstance(p, str):
+        try:
+            import json as _j
+            p = _j.loads(p)
+        except Exception:
+            p = {}
+
+    def nums(v):
+        if isinstance(v, str):
+            v = [x for x in re.split(r"[,\s]+", v.strip()) if x]
+        return [float(x) for x in (v or [])]
+
+    try:
+        import statistics as st
+        if op == "describe":
+            d = nums(args.get("data"))
+            if not d:
+                return "Give me some numbers, sir."
+            n = len(d); mean = st.fmean(d); sd = st.stdev(d) if n > 1 else 0.0
+            q = st.quantiles(d, n=4) if n > 3 else [min(d), st.median(d), max(d)]
+            se = sd / math.sqrt(n) if n else 0
+            return (f"n={n}, mean={mean:.4g}, median={st.median(d):.4g}, sd={sd:.4g}, se={se:.4g}, "
+                    f"var={sd**2:.4g}, min={min(d):.4g}, Q1={q[0]:.4g}, Q3={q[-1]:.4g}, max={max(d):.4g}, "
+                    f"range={max(d)-min(d):.4g}, skew≈{(3*(mean-st.median(d))/sd):.3g}" if sd else f"n={n}, mean={mean:.4g}")
+        if op == "probability":
+            dist = (p.get("dist") or "normal").lower()
+            x = float(p.get("x", 0))
+            if dist == "normal":
+                mu, sig = float(p.get("mu", 0)), float(p.get("sigma", 1))
+                z = (x - mu) / sig
+                cdf = 0.5 * (1 + math.erf(z / math.sqrt(2)))
+                pdf = math.exp(-0.5 * z * z) / (sig * math.sqrt(2 * math.pi))
+                return f"Normal(μ={mu}, σ={sig}) at x={x}: z={z:.4f}, P(X≤x)={cdf:.6f}, P(X>x)={1-cdf:.6f}, density={pdf:.6f}"
+            if dist == "binomial":
+                n_, pr, k = int(p.get("n", 1)), float(p.get("p", .5)), int(p.get("k", 0))
+                pmf = math.comb(n_, k) * pr**k * (1 - pr)**(n_ - k)
+                cdf = sum(math.comb(n_, i) * pr**i * (1 - pr)**(n_ - i) for i in range(k + 1))
+                return f"Binomial(n={n_}, p={pr}): P(X={k})={pmf:.6f}, P(X≤{k})={cdf:.6f}, mean={n_*pr:.4g}, sd={math.sqrt(n_*pr*(1-pr)):.4g}"
+            if dist == "poisson":
+                lam, k = float(p.get("lam", 1)), int(p.get("k", 0))
+                pmf = math.exp(-lam) * lam**k / math.factorial(k)
+                return f"Poisson(λ={lam}): P(X={k})={pmf:.6f}, mean=sd²={lam}"
+            return "Distributions: normal, binomial, poisson."
+        if op == "test":
+            a, b = nums(p.get("a") or args.get("data")), nums(p.get("b"))
+            if b:
+                ma, mb = st.fmean(a), st.fmean(b)
+                va, vb = st.variance(a), st.variance(b)
+                se = math.sqrt(va / len(a) + vb / len(b))
+                t = (ma - mb) / se if se else 0
+                df = (va/len(a) + vb/len(b))**2 / ((va/len(a))**2/(len(a)-1) + (vb/len(b))**2/(len(b)-1))
+                pv_ = 2 * (1 - 0.5 * (1 + math.erf(abs(t) / math.sqrt(2))))
+                return (f"Welch t-test: mean A={ma:.4g}, mean B={mb:.4g}, t={t:.4f}, df≈{df:.1f}, p≈{pv_:.4f} — "
+                        f"{'significant at 0.05' if pv_ < 0.05 else 'not significant at 0.05'}")
+            mu0 = float(p.get("mu0", 0)); m = st.fmean(a); sd = st.stdev(a)
+            t = (m - mu0) / (sd / math.sqrt(len(a)))
+            pv_ = 2 * (1 - 0.5 * (1 + math.erf(abs(t) / math.sqrt(2))))
+            return f"One-sample t-test vs {mu0}: mean={m:.4g}, t={t:.4f}, p≈{pv_:.4f}"
+        if op in ("correlate", "regress"):
+            a, b = nums(p.get("x") or args.get("data")), nums(p.get("y"))
+            if len(a) != len(b) or not a:
+                return "Give equal-length x and y lists in params."
+            n = len(a); ma, mb = st.fmean(a), st.fmean(b)
+            sxy = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+            sxx = sum((x - ma) ** 2 for x in a); syy = sum((y - mb) ** 2 for y in b)
+            r = sxy / math.sqrt(sxx * syy) if sxx and syy else 0
+            if op == "correlate":
+                return f"Pearson r={r:.4f}, r²={r*r:.4f} ({'strong' if abs(r)>.7 else 'moderate' if abs(r)>.4 else 'weak'})"
+            slope = sxy / sxx; inter = mb - slope * ma
+            return f"y = {slope:.4g}·x + {inter:.4g}   (r²={r*r:.4f}, n={n})"
+        if op == "interval":
+            d = nums(args.get("data")); conf = float(p.get("confidence", 0.95))
+            z = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}.get(conf, 1.96)
+            m = st.fmean(d); se = st.stdev(d) / math.sqrt(len(d))
+            return f"{int(conf*100)}% CI for the mean: {m:.4g} ± {z*se:.4g}  →  [{m-z*se:.4g}, {m+z*se:.4g}]"
+        if op == "combinatorics":
+            n_, k = int(p.get("n", 0)), int(p.get("k", 0))
+            return f"C({n_},{k})={math.comb(n_,k):,}  P({n_},{k})={math.perm(n_,k):,}  {n_}!={math.factorial(n_):,}"
+        if op == "bayes":
+            pa, pba, pbna = float(p.get("prior")), float(p.get("likelihood")), float(p.get("false_positive"))
+            post = pa * pba / (pa * pba + (1 - pa) * pbna)
+            return f"Bayes: prior={pa}, P(E|H)={pba}, P(E|¬H)={pbna} → posterior P(H|E)={post:.6f} ({post*100:.2f}%)"
+        return "Operations: describe, probability, test, correlate, regress, interval, combinatorics, bayes."
+    except Exception as e:
+        return f"Statistics failed: {e}"
