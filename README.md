@@ -53,7 +53,9 @@ says scripts are disabled, `powershell -ExecutionPolicy Bypass -File .\start.ps1
 **Mac / Linux** — `./start.sh`
 
 Either one sets up its own Python environment, installs what is missing, prints
-your access token and opens on <http://localhost:8080>. By hand:
+your access token and opens on <http://localhost:8080>. To reach it from your
+phone, run `tunnel.ps1` / `tunnel.sh` in a second window — it fetches
+cloudflared itself and prints a public HTTPS address. By hand:
 
 ```
 pip install -r requirements.txt

@@ -172,13 +172,27 @@ HTTPS address reachable from your phone anywhere.
 
 The only trade-off: it works while your PC is on.
 
-```
-# 1. run 0.5.4.M.4 locally  -- Windows: .\start.ps1   Mac/Linux: ./start.sh
-#    (the launcher installs everything and prints your token)
+Two windows, two commands.
 
-# 2. in a second terminal, expose it (installs from cloudflare.com/products/tunnel)
-cloudflared tunnel --url http://localhost:8080
+**Window 1 — run it** (installs everything, prints your token):
 ```
+.\start.ps1          # Windows        ./start.sh   on Mac/Linux
+```
+
+**Window 2 — publish it** (fetches cloudflared itself the first time):
+```
+.\tunnel.ps1         # Windows        ./tunnel.sh  on Mac/Linux
+```
+
+`tunnel.ps1` downloads cloudflared into `.bin\` if you do not already have it,
+so `cloudflared is not recognized` cannot happen. To install it system-wide
+instead: `winget install --id Cloudflare.cloudflared` (Windows) or
+`brew install cloudflared` (Mac).
+
+**The address changes every restart.** A quick tunnel is anonymous, so
+Cloudflare hands out a fresh `https://xxx.trycloudflare.com` each time — you
+have to re-open it on the phone. A free Cloudflare account plus a domain gives
+a permanent one; ask and I will set that up.
 
 Keep the folder somewhere you own — `C:\Users\<you>\jarvis-v3`, never inside
 `C:\Windows`, where Windows blocks the writes that memory needs.
