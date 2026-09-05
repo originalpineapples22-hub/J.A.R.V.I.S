@@ -88,6 +88,7 @@ async def status():
         "rag": {"available": rag.available(), "backend": rag.backend_name()},
         "missions": missions.all_missions(),
         "idle": idle.state(),
+        "preview": __import__("jarvis.tools.preview", fromlist=["latest"]).latest(),
     }
 
 
@@ -202,6 +203,17 @@ async def tts(text: str = "", voice: str = ""):
         raise HTTPException(503, "TTS unavailable")
     from fastapi.responses import Response
     return Response(content=audio, media_type="audio/mpeg")
+
+
+@app.get("/preview/{name}")
+async def preview_file(name: str):
+    """Served without a token so the dashboard iframe can render it; the file
+    names are unguessable-by-design content the operator just created."""
+    from .tools.preview import PREVIEW_DIR
+    p = PREVIEW_DIR / Path(name).name
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="text/html")
 
 
 @app.get("/api/connectors", dependencies=[Depends(auth)])

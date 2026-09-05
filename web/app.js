@@ -98,6 +98,13 @@ async function refresh() {
   $('#llm-count').textContent = pool.filter(v => v.connected).length + ' Connected';
   $('#c-llm').textContent = `${p.tier || '—'} · ${p.model || p.active || 'none'}`;
   $('#c-voice').textContent = s.pc_online ? 'Browser + PC ear' : 'Browser';
+  if (s.preview && s.preview.name && s.preview.ts !== window.__prevTs) {
+    window.__prevTs = s.preview.ts;
+    $('#live').hidden = false;
+    $('#live-title').textContent = (s.preview.title || 'LIVE WINDOW').toUpperCase();
+    $('#live-frame').src = '/preview/' + encodeURIComponent(s.preview.name) + '?t=' + Date.now();
+    $('#live').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
   if (s.curriculum) { const cu = s.curriculum; const el = $('#c-study');
     if (el) el.textContent = cu.current ? `studying ${cu.current} · ${cu.learned}/${cu.total}` : `${cu.learned}/${cu.total} mastered (${cu.percent}%)`; }
   if (s.capability) { const cap = s.capability; $('#c-iq').textContent = `${cap.index}/1000 · ${cap.active_count}/${cap.total_count} systems`; window.CAP = cap; }
@@ -274,6 +281,9 @@ $('#qc-connectors') && ($('#qc-connectors').onclick = async () => {
   $('#drawer-title').textContent = 'CAPABILITY INDEX';
   $('#drawer-body').innerHTML = html; $('#drawer').classList.remove('hidden');
 });
+
+$('#live-close') && ($('#live-close').onclick = () => { $('#live').hidden = true; $('#live').classList.remove('big'); });
+$('#live-pop') && ($('#live-pop').onclick = () => $('#live').classList.toggle('big'));
 
 /* ---------------- boot */
 (async () => {
