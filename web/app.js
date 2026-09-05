@@ -115,7 +115,16 @@ $$('#nav a, a.more[data-target]').forEach(a => a.onclick = () => { $$('#nav a').
 
 /* ---------------- settings */
 const modal = $('#modal');
-function openSettings(msg) { modal.classList.remove('hidden'); $('#s-msg').textContent = msg || ''; $('#s-token').value = TOKEN; if (TOKEN) loadSettings(); }
+function openSettings(msg) {
+  // A 401 reopens this panel. If that happens while the operator is typing a new
+  // token, the box must keep what they typed — refilling it from the stale TOKEN
+  // silently threw the new token away and made the panel impossible to save.
+  const wasHidden = modal.classList.contains('hidden');
+  modal.classList.remove('hidden');
+  $('#s-msg').textContent = msg || '';
+  if (wasHidden) $('#s-token').value = TOKEN;
+  if (TOKEN) loadSettings();
+}
 async function loadSettings() { try { const s = await api('/api/settings'); $('#s-name').value = s.operator_name; $('#s-ai-name').value = s.assistant_name || ''; $('#s-ai-style').value = s.assistant_style || ''; $('#s-provider').value = s.provider; $('#s-groq').value = s.groq_api_key; $('#s-oai-url').value = s.openai_base_url; $('#s-oai-key').value = s.openai_api_key; $('#s-oai-model').value = s.openai_model; $('#s-ollama').value = s.ollama_url; $('#s-ollama-model').value = s.ollama_model; $('#s-tz').value = s.timezone; $('#s-brief').value = s.briefing_hour;
     const ident = await api('/api/identity').catch(()=>({profile:{}}));
     const P = ident.profile || {};
@@ -130,16 +139,21 @@ async function loadSettings() { try { const s = await api('/api/settings'); $('#
     $('#s-hooks').value = s.webhooks || '{}'; const sel = $('#s-groq-model'); sel.innerHTML = '<option value="">Auto (best available)</option>' + (s.groq_models || []).map(m => `<option ${m === s.groq_model ? 'selected' : ''}>${m}</option>`).join(''); } catch (_) {} }
 $('#btn-settings').onclick = () => openSettings(); $('#modal-close').onclick = () => modal.classList.add('hidden');
 $('#s-save').onclick = async () => {
+  // Adopt the typed token first: every request below must carry it, or the very
+  // first one 401s with the old token and takes the save down with it.
+  TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
   try { await api('/api/identity/profile', {method:'POST', body: JSON.stringify({
     name: $('#s-my-name').value, call_me: $('#s-call-me').value, location: $('#s-my-loc').value,
-    work: $('#s-my-work').value, goals: $('#s-my-goals').value })}); } catch(_){} TOKEN = $('#s-token').value.trim(); store.set('jarvis_token', TOKEN); window.TOKEN = TOKEN;
+    work: $('#s-my-work').value, goals: $('#s-my-goals').value })}); } catch(_){}
   try { await api('/api/settings', {method: 'POST', body: JSON.stringify({operator_name: $('#s-name').value, assistant_name: $('#s-ai-name').value, assistant_style: $('#s-ai-style').value, provider: $('#s-provider').value, groq_api_key: $('#s-groq').value, groq_model: $('#s-groq-model').value, openai_base_url: $('#s-oai-url').value, openai_api_key: $('#s-oai-key').value, openai_model: $('#s-oai-model').value, ollama_url: $('#s-ollama').value, ollama_model: $('#s-ollama-model').value, timezone: $('#s-tz').value, briefing_hour: parseInt($('#s-brief').value || '8'),
       github_models_key: $('#s-github').value, gemini_key: $('#s-gemini').value,
       cerebras_key: $('#s-cerebras').value, openrouter_key: $('#s-openrouter').value,
       mistral_key: $('#s-mistral').value, use_ollama: $('#s-use-ollama').checked, daily_call_budget: parseInt($('#s-budget').value || '900'), tavily_key: $('#s-tavily').value, wolfram_appid: $('#s-wolfram').value,
       elevenlabs_key: $('#s-eleven').value, elevenlabs_voice: $('#s-eleven-voice').value,
       homeassistant_url: $('#s-ha-url').value, homeassistant_token: $('#s-ha-token').value,
-      webhooks: $('#s-hooks').value})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = 'Could not save — check the token.'; } };
+      webhooks: $('#s-hooks').value})}); $('#s-msg').textContent = 'Saved. All systems online, sir.'; if (!wsReady) connect(); refresh(); setTimeout(() => modal.classList.add('hidden'), 800); } catch (e) { $('#s-msg').textContent = (e && e.message === 'unauthorized')
+    ? 'That token was refused. It is the one your server printed on startup — check for a stray space.'
+    : 'Could not save — the server did not answer. Is it still running?'; } };
 
 /* ---------------- push notifications (iPhone: install to Home Screen first) */
 async function enablePush() {
