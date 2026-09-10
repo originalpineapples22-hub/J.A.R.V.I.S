@@ -350,5 +350,8 @@ async def provider_status(settings=None) -> dict:
     s = settings or load_settings()
     items = pv.status(s)
     active, base, key, model = await resolve(s)
+    local = pv.ollama_ready(s)
     return {"pool": items, "active": active, "model": model,
-            "tier": pv.best_tier(s), "cooldowns": pv.cooldowns()}
+            "tier": pv.best_tier(s), "cooldowns": pv.cooldowns(),
+            "local_brain": local, "local_models": pv.local_models(s) if local else [],
+            "independent": active == "ollama"}

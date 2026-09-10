@@ -23,7 +23,21 @@ legacy/        the earlier local-only build, kept for reference
 - **Knows you** — profile, face and voice; family get help but never your data
 - **Costs nothing** — a pool of free brains that fails over when one is busy
 
-## Free brains (add one or more)
+## Your own brain first
+
+The assistant is yours; the model it thinks with should be too. Install one on
+your own machine:
+
+```
+.\deploy\local_brain.ps1        # Windows      ./deploy/local_brain.sh on Mac/Linux
+```
+
+It sizes the model to your hardware, installs it, and makes it first choice.
+After that: no key, no quota, no account, it works offline, and no company can
+retire it out from under you. The free cloud brains below stay as backup for
+when the machine is off — and it says which one it is using if you ask.
+
+## Free cloud brains (backup — add one or more)
 
 | Provider | Free tier |
 |---|---|
@@ -32,9 +46,11 @@ legacy/        the earlier local-only build, kept for reference
 | Cerebras | fastest inference |
 | Groq | fast; also powers Whisper voice |
 | OpenRouter, Mistral | more free models |
-| Ollama | your own PC — unlimited fallback |
+| Ollama | **your own PC — yours, unlimited, offline** |
 
-It uses the best available and switches automatically when one is rate-limited.
+It uses your own brain when it is running, and switches to these when it is
+not — or when one of them is rate-limited. A model that gets retired is replaced
+automatically from whatever that provider currently serves.
 
 ## Install
 

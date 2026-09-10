@@ -34,12 +34,40 @@ PROVIDERS = [
     ("openai",   "OpenAI-compatible", "", "openai_api_key", "", "custom",
      "Any other OpenAI-compatible endpoint."),
     ("ollama",   "Your PC (Ollama)", "", "", "", "local",
-     "UNLIMITED — runs on your own machine. Used automatically when the cloud tiers are exhausted, if your PC is on."),
+     "YOURS — runs on your own machine. No key, no quota, works offline, and nobody "
+     "can retire it. Used first when available; install it with deploy/local_brain.ps1."),
 ]
 
 BY_ID = {p[0]: p for p in PROVIDERS}
 # provider id -> {"until": timestamp} while cooling off after a rate limit
 _cooldown = {}
+
+
+_local = {"ts": 0.0, "url": "", "ok": False, "models": []}
+
+
+def ollama_ready(s=None, force=False):
+    """Is a local brain actually answering? Cached for a minute."""
+    import httpx
+    s = s or load_settings()
+    url = (s.get("ollama_url") or "http://localhost:11434").rstrip("/")
+    if not force and _local["url"] == url and time.time() - _local["ts"] < 60:
+        return _local["ok"]
+    ok, models = False, []
+    try:
+        r = httpx.get(f"{url}/api/tags", timeout=2.5)
+        if r.status_code == 200:
+            models = [m.get("name", "") for m in r.json().get("models", []) if m.get("name")]
+            ok = bool(models)
+    except Exception:
+        ok = False
+    _local.update(ts=time.time(), url=url, ok=ok, models=models)
+    return ok
+
+
+def local_models(s=None):
+    ollama_ready(s)
+    return list(_local["models"])
 
 
 def configured(s=None):
@@ -48,9 +76,11 @@ def configured(s=None):
     out = []
     for pid, name, base, key_setting, model, tier, note in PROVIDERS:
         if pid == "ollama":
-            if s.get("provider") == "ollama" or s.get("use_ollama"):
+            # Only counts as configured when it is actually answering: an
+            # unreachable local brain must not displace the cloud pool.
+            if (s.get("provider") == "ollama" or s.get("use_ollama")) and ollama_ready(s):
                 out.append(pid)
-            continue    # local is ranked last in order(), so it is the unlimited fallback
+            continue
         if key_setting and (s.get(key_setting) or "").strip():
             out.append(pid)
     return out
@@ -96,6 +126,11 @@ def order(s=None):
     ranked = sorted(have, key=lambda p: (BY_ID[p][5] != "frontier", BY_ID[p][5] != "strong", p))
     if pref in have:
         ranked = [pref] + [p for p in ranked if p != pref]
+    # A brain on the operator's own machine cannot be retired, rate-limited or
+    # switched off by anyone else, so when one is available it leads and the
+    # borrowed ones become backup.
+    if s.get("prefer_local") and "ollama" in have:
+        ranked = ["ollama"] + [p for p in ranked if p != "ollama"]
     live = [p for p in ranked if not is_cool(p)]
     return live or ranked        # if everything is cooling off, try anyway
 
