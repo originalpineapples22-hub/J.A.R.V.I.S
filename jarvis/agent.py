@@ -181,6 +181,11 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
     final_parts = []
     steps = 0
     max_steps = int(s.get("max_tool_steps", 4))
+    # Research and writing naturally land in different steps — the model calls
+    # deep_research, gets its result back, THEN calls make_document. So whether
+    # a research tool has run has to be tracked for the whole turn, not just
+    # the batch of calls the model happens to emit in one go.
+    researched_this_turn = False
     while True:
         buf, sent = "", 0
         try:
@@ -214,6 +219,8 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
         steps += 1
         results = []
         called_names = {n for n, _ in calls}
+        if called_names & set(_RESEARCH_TOOLS):
+            researched_this_turn = True   # visible to every call in this batch, and every later step
         for name, raw_args in calls:
             try:
                 args = json.loads(raw_args) if raw_args else {}
@@ -221,12 +228,12 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
                 args = {"_raw": raw_args}
             t = get_tool(name)
             yield {"type": "tool", "name": name, "args": args}
-            haystack = f"{name} {raw_args}".lower()
-            needs_real = name in _DOCUMENT_TOOLS and any(k in haystack for k in _MUST_BE_REAL)
-            researched = bool(called_names & set(_RESEARCH_TOOLS)) or any(
-                r in " ".join(m["content"] for m in messages if m["role"] == "assistant") for r in
-                (f"[RESULT of {rt}]" for rt in _RESEARCH_TOOLS))
-            if needs_real and not researched:
+            # Only the title/name should trigger this — not any paragraph of
+            # BODY TEXT, or a document reporting "no genuine past papers were
+            # found" would trip the same guard it is trying to comply with.
+            title_bits = f"{name} {args.get('title','')} {args.get('name','')}".lower()
+            needs_real = name in _DOCUMENT_TOOLS and any(k in title_bits for k in _MUST_BE_REAL)
+            if needs_real and not researched_this_turn:
                 res = ("Not created — this claims to be real official material (a past paper, mark scheme or "
                        "official syllabus), which cannot simply be written from memory. Call deep_research or "
                        "deep_search first and build the document only from what that actually finds, citing it; "
