@@ -9,6 +9,75 @@ from .tools import manifest, get as get_tool
 from .config import load_settings
 
 TOOL_RE = re.compile(r"\[TOOL:\s*([a-zA-Z_]+)\s*(\{.*?\})?\s*\]", re.DOTALL)
+_TOOL_HEAD = re.compile(r"\[TOOL:\s*([a-zA-Z_]+)\s*")
+
+
+def _find_tool_calls(buf: str):
+    """Parse [TOOL: name {json}] tags with real brace-balancing.
+
+    A plain non-greedy brace regex stops at the FIRST '}' it sees — which is the
+    end of the first nested object, not the end of the argument JSON, for any
+    tool whose arguments contain a list of dicts (make_document's "sections",
+    make_presentation's "slides", ...). That truncated the JSON mid-structure,
+    left the real closing "}]" as literal text leaking into the visible reply,
+    and made json.loads fall back to a near-empty {"_raw": ...} — so exactly
+    the tools used to compile a document were the ones most likely to receive
+    mangled arguments. This walks the string tracking quote/escape state so a
+    '{' or '}' inside a string never miscounts, and only stops at the brace
+    that actually balances the one right after the tool name.
+    """
+    calls, pieces = [], []
+    i, n = 0, len(buf)
+    while i < n:
+        m = _TOOL_HEAD.search(buf, i)
+        if not m:
+            pieces.append(buf[i:])
+            break
+        pieces.append(buf[i:m.start()])
+        name = m.group(1)
+        j = m.end()
+        raw_args, end = None, j
+        if j < n and buf[j] == "{":
+            depth, k, in_str, esc = 0, j, False, False
+            while k < n:
+                c = buf[k]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                else:
+                    if c == '"':
+                        in_str = True
+                    elif c == "{":
+                        depth += 1
+                    elif c == "}":
+                        depth -= 1
+                        if depth == 0:
+                            k += 1
+                            break
+                k += 1
+            raw_args, end = buf[j:k], k
+        tail = re.match(r"\s*\]", buf[end:])
+        if not tail:
+            # Not a complete call in what has arrived yet (mid-stream, or the
+            # model never closed it) — leave it as literal text rather than
+            # guess where it ends.
+            pieces.append(buf[m.start():])
+            break
+        calls.append((name, raw_args or ""))
+        i = end + tail.end()
+    return calls, "".join(pieces)
+
+# Requests for these can only be honoured with genuinely retrieved material —
+# an invented "past paper" or "mark scheme" is worse than refusing, since it
+# looks authentic to someone revising from it.
+_MUST_BE_REAL = ("past paper", "past exam", "specimen paper", "mark scheme",
+                 "official syllabus", "exam paper", "moe syllabus")
+_RESEARCH_TOOLS = ("deep_research", "deep_search", "fetch_url", "web_search")
+_DOCUMENT_TOOLS = ("make_document", "make_presentation", "make_spreadsheet")
 
 PERSONA = (
     "You are {ai_name}, an AI of your own kind — {style} — created to serve one operator, whom you address as '{name}'. "
@@ -21,6 +90,14 @@ PERSONA = (
     "Available tools:\n{tools}\n\n"
     "HONESTY: Your abilities are exactly your tools plus conversation. You cannot change your own code, settings, or enable hidden upgrades; "
     "if asked for something outside your tools, say it is not built yet and that the developer can add it.\n"
+    "SOURCED CLAIMS: Some requests only mean something if the content is genuine — past exam papers, official "
+    "syllabi, textbook mark schemes, real quotes, citations, statistics, prices. For these you must actually retrieve "
+    "them (deep_research, deep_search, fetch_url) before writing them anywhere, and say where each piece came from. "
+    "make_document and make_presentation only format text you hand them — they verify nothing — so the checking is "
+    "done before you call them, never after. If you cannot find or confirm the genuine material, say that plainly and "
+    "either stop there or offer clearly-labelled original practice material instead. Never write invented content into "
+    "a document as though it were the real official source: a student who revises from a fabricated past paper can be "
+    "harmed by it as badly as by a wrong answer spoken aloud.\n"
     "MEMORY: Sections marked MEMORY and KNOWLEDGE are your own recollections; trust and use them.\n"
     "HARD PROBLEMS: For anything complex, high-stakes, multi-part, or where being wrong would cost the operator, call [TOOL: deep_think {{\"question\": \"...\"}}] — several specialists reason in parallel and a critic verifies before you answer.\n"
     "PROACTIVE: If the operator's context (tasks, reminders, system stress) warrants it, mention it briefly and unprompted."
@@ -128,14 +205,15 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
             yield {"type": "error", "text": f"Cognitive core error: {e}"}
             memory.add_message(channel, "assistant", f"(error: {e})")
             return
-        calls = TOOL_RE.findall(buf)
-        clean = TOOL_RE.sub("", buf).strip()
+        calls, clean = _find_tool_calls(buf)
+        clean = clean.strip()
         if clean:
             final_parts.append(clean)
         if not calls or steps >= max_steps:
             break
         steps += 1
         results = []
+        called_names = {n for n, _ in calls}
         for name, raw_args in calls:
             try:
                 args = json.loads(raw_args) if raw_args else {}
@@ -143,7 +221,17 @@ async def run(user_text: str, channel: str = "web", ctx: dict = None):
                 args = {"_raw": raw_args}
             t = get_tool(name)
             yield {"type": "tool", "name": name, "args": args}
-            if not identity.allowed(name, role):
+            haystack = f"{name} {raw_args}".lower()
+            needs_real = name in _DOCUMENT_TOOLS and any(k in haystack for k in _MUST_BE_REAL)
+            researched = bool(called_names & set(_RESEARCH_TOOLS)) or any(
+                r in " ".join(m["content"] for m in messages if m["role"] == "assistant") for r in
+                (f"[RESULT of {rt}]" for rt in _RESEARCH_TOOLS))
+            if needs_real and not researched:
+                res = ("Not created — this claims to be real official material (a past paper, mark scheme or "
+                       "official syllabus), which cannot simply be written from memory. Call deep_research or "
+                       "deep_search first and build the document only from what that actually finds, citing it; "
+                       "if nothing genuine turns up, say that plainly to the operator instead of inventing content.")
+            elif not identity.allowed(name, role):
                 res = (f"'{name}' is reserved for the operator. Politely explain you cannot do that "
                        "for a guest, and offer an alternative.")
             else:

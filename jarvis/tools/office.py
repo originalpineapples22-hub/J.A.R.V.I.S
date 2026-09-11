@@ -15,7 +15,7 @@ def _safe(name, ext):
     return n if n.lower().endswith(ext) else n + ext
 
 
-@tool("make_presentation", "Create a styled PowerPoint (.pptx). Provide a title and a list of slides, each with a title, bullet points and optional speaker notes.",
+@tool("make_presentation", "Create a styled PowerPoint (.pptx) from the exact content you provide — it formats, it does not verify. For anything that must be real (past papers, cited facts, figures), research it first and pass in only what you confirmed.",
       {"name": "file name", "title": "deck title", "subtitle": "optional", "slides": "[{\"title\": str, \"bullets\": [str], \"notes\": str}]", "theme": "dark|light"},
       agent="Coding Agent")
 def make_presentation(args, ctx):
@@ -72,7 +72,7 @@ def make_presentation(args, ctx):
     return f"Presentation saved as {name} ({1 + len(args.get('slides', []) or [])} slides). Download it from Files."
 
 
-@tool("make_document", "Create a Word document (.docx) with a title and sections of headings and paragraphs.",
+@tool("make_document", "Create a Word document (.docx) from the exact content you provide — it formats, it does not verify. For anything that must be real (past papers, cited facts, figures), research it first and pass in only what you confirmed.",
       {"name": "file name", "title": "document title", "sections": "[{\"heading\": str, \"paragraphs\": [str], \"bullets\": [str]}]"},
       agent="Coding Agent")
 def make_document(args, ctx):
@@ -93,7 +93,7 @@ def make_document(args, ctx):
     return f"Document saved as {name}. Download it from Files."
 
 
-@tool("make_spreadsheet", "Create an Excel workbook (.xlsx). Provide sheets with headers and rows; numbers are kept numeric and formulas (strings starting with '=') work.",
+@tool("make_spreadsheet", "Create an Excel workbook (.xlsx) from the exact rows you provide — it formats, it does not verify. For real-world figures (prices, scores, statistics), research them first. Numbers are kept numeric and formulas (strings starting with '=') work.",
       {"name": "file name", "sheets": "[{\"name\": str, \"headers\": [str], \"rows\": [[...]]}]"}, agent="Coding Agent")
 def make_spreadsheet(args, ctx):
     from openpyxl import Workbook
