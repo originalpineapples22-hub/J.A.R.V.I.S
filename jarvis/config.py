@@ -49,14 +49,8 @@ DEFAULTS = {
     "background_share": 0.35,          # share of the day background work may use
     "require_approval_for_self_edit": True,
     "safe_mode": False,                # True = no self-modification, no file deletion, no PC control
-    # --- free brain pool (add any, it uses the best available and fails over)
-    "github_models_key": "",
-    "gemini_key": "",
-    "cerebras_key": "",
-    "openrouter_key": "",
-    "mistral_key": "",
-    "github_model": "", "gemini_model": "", "cerebras_model": "",
-    "openrouter_model": "", "mistral_model": "",
+    # --- the brain: your own PC first, one free cloud key as backup — deliberately not a pool
+    "gemini_key": "", "gemini_model": "",
 }
 
 

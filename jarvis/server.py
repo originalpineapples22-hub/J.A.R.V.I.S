@@ -202,10 +202,15 @@ async def get_file(name: str):
 async def get_settings():
     s = load_settings()
     masked = dict(s)
-    for k in ("groq_api_key", "openai_api_key"):
+    # Never echo a real secret back into the page: a masked *fragment* (the old
+    # behaviour) still round-trips into the same editable box, so any later,
+    # unrelated save — changing the operator's name, the budget, anything —
+    # silently overwrote the real key with the truncated display string. A
+    # fixed sentinel carries no recoverable bytes and the front end knows to
+    # never send it back.
+    for k in ("groq_api_key", "openai_api_key", "gemini_key"):
         if masked.get(k):
-            masked[k] = masked[k][:6] + "…"
-    masked["groq_models"] = await brain.groq_models(s.get("groq_api_key"))
+            masked[k] = "(already set)"
     return masked
 
 

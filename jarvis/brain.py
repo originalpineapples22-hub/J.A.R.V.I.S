@@ -120,42 +120,6 @@ def _short_error(e) -> str:
     return detail or "no response"
 
 
-_or_cache = {"key": "", "ts": 0.0, "models": []}
-
-
-async def openrouter_free_models(key: str):
-    """The models OpenRouter is giving away *today*.
-
-    Its free line-up changes: a slug that was free last month starts answering
-    404 with "use the paid version instead". Asking the catalogue for models
-    priced at zero keeps the free tier working without anyone editing a list.
-    """
-    key = (key or "").strip()
-    if not key:
-        return []
-    if _or_cache["key"] == key and time.time() - _or_cache["ts"] < 900:
-        return _or_cache["models"]
-    models = []
-    try:
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get("https://openrouter.ai/api/v1/models",
-                            headers={"Authorization": f"Bearer {key}"})
-            r.raise_for_status()
-            for m in r.json().get("data", []):
-                pr = m.get("pricing") or {}
-                try:
-                    free = float(pr.get("prompt", 1) or 0) == 0 and float(pr.get("completion", 1) or 0) == 0
-                except (TypeError, ValueError):
-                    free = False
-                mid = m.get("id", "")
-                if free and mid and not any(x in mid.lower() for x in _EXCLUDE):
-                    models.append(mid)
-    except Exception:
-        models = []
-    _or_cache.update(key=key, ts=time.time(), models=models)
-    return models
-
-
 def pick_model(models, vision=False):
     if not models:
         return None
@@ -216,13 +180,6 @@ async def _stream_raw(messages, temperature, settings, timeout):
     tried, errors = [], []
     for pid in pv.order(s):
         base, key, model = pv.resolve(pid, s)
-        if pid == "groq" and not model:
-            model = pick_model(await groq_models(key)) or ""
-        if pid == "openrouter":
-            free = await openrouter_free_models(key)
-            # Only keep the configured model if OpenRouter still gives it away.
-            if free and model not in free:
-                model = pick_model(free) or model
         if not model or (pid not in ("ollama",) and not key):
             continue
         tried.append(pid)
@@ -251,14 +208,8 @@ async def _stream_raw(messages, temperature, settings, timeout):
                 if got:
                     break                      # it started answering, so the model is fine
                 if healed is None and _model_gone(str(e)):
-                    if pid == "openrouter":
-                        # Its refusal names the PAID slug as the replacement. Never
-                        # follow that — only ever move to something still free.
-                        healed = ""
-                        live = await openrouter_free_models(key)
-                    else:
-                        healed = _suggested_model(str(e)) or ""
-                        live = await provider_models(pid, base, key)
+                    healed = _suggested_model(str(e)) or ""
+                    live = await provider_models(pid, base, key)
                     for c in ([healed] if healed else []) + [pick_model(live) or ""]:
                         if c and c != candidate and c not in attempts:
                             attempts.append(c)
@@ -277,9 +228,9 @@ async def _stream_raw(messages, temperature, settings, timeout):
             continue
     if not tried:
         raise RuntimeError(
-            "No brain available — no provider is configured. Add a free key in Settings: "
-            "GitHub Models (github.com/settings/tokens), Gemini (aistudio.google.com/apikey), "
-            "Cerebras (cloud.cerebras.ai) or Groq (console.groq.com).")
+            "No brain available — nothing is configured. Either install your own free brain "
+            "(deploy/local_brain.ps1 or .sh — no key, offline, permanent) or add a Gemini key "
+            "in Settings (free at aistudio.google.com/apikey) as backup for when your PC is off.")
     raise RuntimeError(
         "No brain available. Every provider refused:\n  " + "\n  ".join(errors) +
         "\nFix whichever is closest, or add another free key in Settings.")
@@ -299,9 +250,6 @@ async def _stream_one(pid, base, key, model, messages, temperature, timeout):
         return
     payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True}
     headers = {"Authorization": f"Bearer {key}"}
-    if pid == "openrouter":
-        headers["HTTP-Referer"] = "https://github.com/originalpineapples22-hub"
-        headers["X-Title"] = "0.5.4.M.4"
     async with httpx.AsyncClient(timeout=timeout) as c:
         async with c.stream("POST", f"{base}/chat/completions", json=payload, headers=headers) as r:
             if r.status_code >= 400:

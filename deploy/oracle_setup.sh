@@ -43,10 +43,9 @@ python -c "import playwright" 2>/dev/null && (playwright install --with-deps chr
 
 echo "${BOLD}==> [5/6] Configuration${NC}"
 if [ ! -f .env ]; then
-  echo "${DIM}Free keys — press Enter to skip any you do not have yet.${NC}"
-  read -rp "  Groq API key        (console.groq.com)          : " GROQ || true
-  read -rp "  GitHub Models token (github.com/settings/tokens): " GHKEY || true
+  echo "${DIM}One free key, kept as backup for when your own PC is off — press Enter to skip.${NC}"
   read -rp "  Google Gemini key   (aistudio.google.com/apikey): " GEMKEY || true
+  read -rp "  Groq API key        (console.groq.com, voice only, optional): " GROQ || true
   TOKEN=$(python3 -c "import secrets;print(secrets.token_urlsafe(18))")
   cat > .env <<ENV
 GROQ_API_KEY=${GROQ:-}
@@ -58,7 +57,7 @@ ENV
   python3 - <<PY
 import json, pathlib
 s = {}
-for k, v in (("github_models_key", "${GHKEY:-}"), ("gemini_key", "${GEMKEY:-}"), ("groq_api_key", "${GROQ:-}")):
+for k, v in (("gemini_key", "${GEMKEY:-}"), ("groq_api_key", "${GROQ:-}")):
     if v.strip():
         s[k] = v.strip()
 if s:

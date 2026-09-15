@@ -81,17 +81,17 @@ BRAIN_MAX = 150
 
 
 def _brain_points(s) -> tuple:
-    """Scored from the free brain pool. A frontier model reachable on a FREE
-    tier (GitHub Models, Gemini) earns full marks — paying is never required."""
+    """Scored from whichever brain is actually available. A frontier model on
+    a FREE tier (Gemini) earns full marks — paying is never required, and
+    having only one or two brains configured is the deliberate design here,
+    not a gap to compensate for with a pool-size bonus."""
     from . import providers as pv
     have = pv.configured(s)
     if not have:
         return 0, "no brain configured"
     tier = pv.best_tier(s)
-    names = ", ".join(pv.BY_ID[p][1] for p in have[:3])
+    names = ", ".join(pv.BY_ID[p][1] for p in have)
     pts = {"frontier": 150, "strong": 100, "custom": 100, "local": 65}.get(tier, 65)
-    if len(have) >= 3:
-        pts = min(150, pts + 10)        # a resilient pool is genuinely better
     return pts, f"{tier} via {names}"
 
 

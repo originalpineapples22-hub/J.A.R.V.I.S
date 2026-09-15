@@ -21,36 +21,35 @@ legacy/        the earlier local-only build, kept for reference
 - **Acts** — 89 tools: files, PC control, smart home, music, web, images, Office
 - **Works alone** — missions that run for days, self-study, self-repair
 - **Knows you** — profile, face and voice; family get help but never your data
-- **Costs nothing** — a pool of free brains that fails over when one is busy
+- **Costs nothing** — your own machine first, one free key as backup, no paid AI anywhere
 
-## Your own brain first
+## One brain, not a pool
 
-The assistant is yours; the model it thinks with should be too. Install one on
-your own machine:
+Earlier versions tried six different companies' AIs in turn. That is not
+independence, just more companies to depend on — so it was cut down to
+exactly two, deliberately:
 
-```
-.\deploy\local_brain.ps1        # Windows      ./deploy/local_brain.sh on Mac/Linux
-```
+1. **Your own machine.** Install it once:
 
-It sizes the model to your hardware, installs it, and makes it first choice.
-After that: no key, no quota, no account, it works offline, and no company can
-retire it out from under you. The free cloud brains below stay as backup for
-when the machine is off — and it says which one it is using if you ask.
+   ```
+   .\deploy\local_brain.ps1        # Windows      ./deploy/local_brain.sh on Mac/Linux
+   ```
 
-## Free cloud brains (backup — add one or more)
+   It sizes a model to your hardware, installs it, and makes it first choice.
+   No key, no quota, no account, works offline, and no company can retire it
+   out from under you.
 
-| Provider | Free tier |
-|---|---|
-| GitHub Models | frontier-class, with any GitHub account |
-| Google Gemini | generous daily limits |
-| Cerebras | fastest inference |
-| Groq | fast; also powers Whisper voice |
-| OpenRouter, Mistral | more free models |
-| Ollama | **your own PC — yours, unlimited, offline** |
+2. **Google Gemini**, free, kept only as backup for when your PC is off — the
+   one exception, because "no PC needed, always on" was asked for too, and a
+   local model alone can't deliver that. Add a key at aistudio.google.com/apikey
+   if you want it; skip it and the assistant simply waits for your PC.
 
-It uses your own brain when it is running, and switches to these when it is
-not — or when one of them is rate-limited. A model that gets retired is replaced
-automatically from whatever that provider currently serves.
+Nothing else is contacted, ever. Ask it "which brain are you using?" and it
+answers honestly. A Gemini model that gets retired is replaced automatically
+from whatever Google currently serves — no manual fix needed.
+
+Groq stays as a separate, optional key purely for voice transcription
+(Whisper) — unrelated to which brain answers you.
 
 ## Install
 

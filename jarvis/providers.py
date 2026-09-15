@@ -1,38 +1,30 @@
 # -*- coding: utf-8 -*-
-"""Free brain pool.
+"""One brain, plus a backup — deliberately not a pool.
 
-Several companies give away serious models. This registry lets 0.5.4.M.4 use
-them all: it tries the best available first and automatically fails over when a
-provider is rate-limited or down, so the free tiers add up to a brain that is
-effectively always on — no payment, ever.
+This used to try six different companies' APIs in turn. The operator asked for
+the opposite: as few outside AIs as possible, not as many as could be
+collected. What is left:
 
-Every provider here is OpenAI-compatible (/chat/completions).
+  1. Your own machine (Ollama) — genuinely yours, free, offline, permanent.
+  2. Google Gemini — free, and the one cloud brain kept as backup for when
+     your machine is off, since "no PC needed" was asked for too and a single
+     local model can't deliver that on its own.
+
+Nothing else is contacted. Add jarvis/tools/*.py custom endpoints yourself via
+the "openai" slot below if you ever want a third, self-hosted option — nothing
+here reaches out to it unless you fill in openai_api_key.
 """
 import time
 from .config import load_settings
 
 # id, name, base_url, key_setting, default model, tier, note
 PROVIDERS = [
-    ("github",   "GitHub Models",  "https://models.github.ai/inference",
-     "github_models_key", "openai/gpt-4.1", "frontier",
-     "FREE with any GitHub account — frontier-class models. Create a token at github.com/settings/tokens (no scopes needed)."),
     ("gemini",   "Google Gemini",  "https://generativelanguage.googleapis.com/v1beta/openai",
      "gemini_key", "gemini-3.6-flash", "frontier",   # a starting guess; retired names self-heal
-     "FREE at aistudio.google.com/apikey — very generous daily limits."),
-    ("cerebras", "Cerebras",       "https://api.cerebras.ai/v1",
-     "cerebras_key", "llama-3.3-70b", "strong",
-     "FREE at cloud.cerebras.ai — the fastest inference available."),
-    ("groq",     "Groq",           "https://api.groq.com/openai/v1",
-     "groq_api_key", "", "strong",
-     "FREE at console.groq.com — fast, reliable."),
-    ("openrouter", "OpenRouter",   "https://openrouter.ai/api/v1",
-     "openrouter_key", "", "strong",                 # empty = whatever is free today
-     "FREE at openrouter.ai — many models ending in :free."),
-    ("mistral",  "Mistral",        "https://api.mistral.ai/v1",
-     "mistral_key", "mistral-large-latest", "strong",
-     "FREE tier at console.mistral.ai."),
+     "FREE at aistudio.google.com/apikey — very generous daily limits. Kept as the one cloud "
+     "backup, for when your own machine is off."),
     ("openai",   "OpenAI-compatible", "", "openai_api_key", "", "custom",
-     "Any other OpenAI-compatible endpoint."),
+     "Off unless you fill this in yourself — any OpenAI-compatible endpoint you choose to point it at."),
     ("ollama",   "Your PC (Ollama)", "", "", "", "local",
      "YOURS — runs on your own machine. No key, no quota, works offline, and nobody "
      "can retire it. Used first when available; install it with deploy/local_brain.ps1."),
